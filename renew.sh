@@ -32,7 +32,7 @@ xcodebuild -project "$SCRIPT_DIR/TingBei.xcodeproj" \
     build \
     -quiet
 
-APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -name "TingBei.app" -path "*/Debug-iphoneos/*" 2>/dev/null | head -n 1)
+APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -name "TingBei.app" -path "*/Build/Products/Debug-iphoneos/*" ! -path "*/Index.noindex/*" 2>/dev/null | head -n 1)
 
 if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
     log "错误：未找到编译产物 TingBei.app"
