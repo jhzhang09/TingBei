@@ -1,0 +1,28 @@
+name: Build & Verify
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build & Self Checks
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Independent State Machine Checks
+        run: |
+          swift -DPACE_CHECKS TingBei/Pace.swift
+
+      - name: Build App & Widgets for Simulator (No Signing)
+        run: |
+          xcodebuild -project TingBei.xcodeproj \
+            -scheme TingBei \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

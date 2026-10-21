@@ -2,6 +2,7 @@
 
 <p align="left">
   <img src="https://img.shields.io/badge/Version-v1.1.0-C9A96E.svg?style=flat" alt="Version" />
+  <img src="https://github.com/jhzhang09/TingBei/actions/workflows/ci.yml/badge.svg" alt="Build Status" />
   <img src="https://img.shields.io/badge/Platform-iOS%2027.0+-000000.svg?style=flat&logo=apple" alt="Platform" />
   <img src="https://img.shields.io/badge/Language-Swift%206-FA7343.svg?style=flat&logo=swift" alt="Language" />
   <img src="https://img.shields.io/badge/UI-SwiftUI%20%7C%20WidgetKit-007AFF.svg?style=flat" alt="UI" />
