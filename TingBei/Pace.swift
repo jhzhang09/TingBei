@@ -2,8 +2,18 @@ import Foundation
 
 /// 一杯「标准杯」按大约 14 克乙醇估算，只用来比较这一场的量。
 /// 不是血液酒精浓度，也不能用来判断能不能开车。
+///
+/// 设计原则：真正喝酒时没人愿意一直点手机。所以这一场以「主动提醒」为主：
+/// app 按节奏定时问一句，用户在通知上点一下就能确认；不理也行，按方案节奏估算。
+/// 随着杯数和时间逼近自己定的线，提醒越来越密、越来越急，直到收杯。
 enum Pace {
     static let gramsPerStandard = 14.0
+
+    /// 在通知上点了「喝了一杯」但不知道具体喝了什么时，按一个标准杯记。
+    static let genericDrink = DrinkPreset(id: "generic", name: "一杯", detail: "按 1 标准杯", grams: 14)
+
+    /// 未来最多预排多少条提醒（系统上限 64 条，留出余量）。
+    static let promptBudget = 48
 
     static let presets: [DrinkPreset] = [
         DrinkPreset(id: "beer330", name: "啤酒", detail: "330 ml", grams: 12),
@@ -14,229 +24,288 @@ enum Pace {
         DrinkPreset(id: "cocktail", name: "鸡尾酒", detail: "一杯", grams: 18),
     ]
 
-    /// 提醒分六档，数值越大越该停。同时命中多条线时取更高的一档。
-    /// 标准杯、两杯间隔、预定结束时间互相独立，任何一条到了都会升档。
+    // MARK: - 提醒强度阶梯
+
+    /// 当前该用哪一级提醒。杯数和时间任何一条先到都会升级，只升不降（除非用户纠正了杯数）。
+    static func intensity(units: Double, elapsed: TimeInterval, session: Session) -> Intensity {
+        let planned = session.plannedSeconds
+        let soft = Double(max(session.softLimit, 1))
+        let hard = Double(max(session.hardLimit, session.softLimit))
+        let epsilon = 0.0001
+        if units >= hard - epsilon || elapsed >= planned + 30 * 60 {
+            return .over
+        }
+        if units >= soft - epsilon || elapsed >= planned {
+            return .due
+        }
+        let pressure = max(units / soft, elapsed / planned)
+        if pressure >= 0.75 {
+            return .near
+        }
+        if pressure >= 0.45 {
+            return .steady
+        }
+        return .quiet
+    }
+
+    /// 每一级提醒之间隔多久。越往后越密。
+    static func gap(for intensity: Intensity, session: Session) -> TimeInterval {
+        let base = session.minIntervalSeconds
+        switch intensity {
+        case .quiet:
+            return max(15 * 60, base)
+        case .steady:
+            return max(12 * 60, base * 0.75)
+        case .near:
+            return min(20 * 60, max(10 * 60, base * 0.5))
+        case .due:
+            return 8 * 60
+        case .over:
+            return 4 * 60
+        }
+    }
+
+    /// 没回应时按方案自己的节奏估算：在预定时长里刚好喝到建议线。
+    static func estimateRate(_ session: Session) -> Double {
+        guard session.estimateWhenSilent else { return 0 }
+        return Double(session.softLimit) / session.plannedSeconds
+    }
+
+    // MARK: - 当前状态
+
     static func evaluate(_ session: Session, now: Date) -> PaceSnapshot {
         let elapsed = max(0, now.timeIntervalSince(session.startedAt))
-        let planned = TimeInterval(session.plannedMinutes * 60)
-        let minGap = TimeInterval(session.minIntervalMinutes * 60)
-        let units = session.standardDrinks
-        let soft = Double(session.softLimit)
-        let hard = Double(session.hardLimit)
+        let confirmed = session.confirmedUnits(at: now)
+        let estimated = session.estimatedUnits(at: now)
+        let units = confirmed + estimated
+        let level = intensity(units: units, elapsed: elapsed, session: session)
 
-        let tooFast = isTooFast(session, now: now, minGap: minGap)
-        let waitMinutes = waitMinutes(session, now: now, minGap: minGap, tooFast: tooFast)
-
-        let lastDrink = session.drinks.max(by: { $0.at < $1.at })
-        let cooldownRemaining: TimeInterval
-        if let lastDrink {
-            let nextSafe = lastDrink.at.addingTimeInterval(minGap)
-            cooldownRemaining = max(0, nextSafe.timeIntervalSince(now))
-        } else {
-            cooldownRemaining = 0
-        }
-
-        let gramOver = units >= hard
-        let timeOver = elapsed >= planned + 30 * 60
-        let gramDue = units >= soft
-        let timeDue = elapsed >= planned
-        let gramNear = units >= soft * 0.7 && units < soft
-        let timeNear = elapsed >= planned * 0.75 && elapsed < planned
-        let settle = elapsed >= 20 * 60 || !session.drinks.isEmpty
+        let fast = tooFast(session, now: now)
+        let lastDrink = session.drinks.filter { $0.at <= now }.max(by: { $0.at < $1.at })
 
         let cue: Cue
-        if gramOver || timeOver {
+        switch level {
+        case .over:
             cue = .over
-        } else if gramDue || timeDue {
+        case .due:
             cue = .due
-        } else if tooFast {
+        case _ where fast.isTooFast:
             cue = .hurried
-        } else if gramNear || timeNear {
+        case .near:
             cue = .near
-        } else if settle {
+        case .steady:
             cue = .settle
-        } else {
-            cue = .calm
+        case .quiet:
+            cue = (lastDrink != nil || estimated > 0) ? .settle : .calm
         }
+
+        let pending = session.prompts
+            .filter { $0.reply == nil && $0.at <= now }
+            .max(by: { $0.at < $1.at })
+            .flatMap { prompt -> Prompt? in
+                // 用户在这条提醒之后已经手动记过，就不再追问。
+                if let lastDrink, lastDrink.at >= prompt.at { return nil }
+                return prompt
+            }
+        let next = session.prompts
+            .filter { $0.reply == nil && $0.at > now }
+            .min(by: { $0.at < $1.at })
 
         let copy = copy(
             cue: cue,
             session: session,
             units: units,
-            tooFast: tooFast,
-            waitMinutes: waitMinutes,
-            gramNear: gramNear,
-            timeNear: timeNear,
-            gramDue: gramDue,
-            timeDue: timeDue,
-            gramOver: gramOver,
-            timeOver: timeOver
+            elapsed: elapsed,
+            waitMinutes: fast.waitMinutes
         )
 
         return PaceSnapshot(
             cue: cue,
-            rank: cue.rank,
+            intensity: level,
             title: copy.title,
             message: copy.message,
-            standardDrinks: units,
+            units: units,
+            confirmedUnits: confirmed,
+            estimatedUnits: estimated,
             drinkCount: session.drinks.count,
             waterCount: session.waters.count,
             elapsed: elapsed,
-            planned: planned,
-            isTooFast: tooFast,
-            waitMinutes: waitMinutes,
-            cooldownRemaining: cooldownRemaining,
+            planned: session.plannedSeconds,
+            isTooFast: fast.isTooFast,
+            waitMinutes: fast.waitMinutes,
+            sinceLastDrink: lastDrink.map { now.timeIntervalSince($0.at) },
+            nextPrompt: next,
+            pendingPrompt: pending,
             softLimit: session.softLimit,
             hardLimit: session.hardLimit
         )
     }
 
-    /// 锁屏后仍要响的提醒。只排未来的，最多由调用方再截断。
-    static func plannedCues(session: Session, now: Date) -> [PlannedCue] {
+    // MARK: - 预排提醒
+
+    /// 从现在起往后推算提醒时间表。确定性：同样的记录总是得到同样的时间，
+    /// 所以每次回到前台重新排程都不会把提醒往后推。
+    static func projectPrompts(_ session: Session, now: Date) -> [Prompt] {
+        guard session.endedAt == nil else { return [] }
         let start = session.startedAt
-        let planned = TimeInterval(session.plannedMinutes * 60)
-        let planEnd = start.addingTimeInterval(planned)
-        let interval = TimeInterval(session.minIntervalMinutes * 60)
-        let units = session.standardDrinks
-        var cues: [PlannedCue] = []
+        let rate = estimateRate(session)
+        var units = session.confirmedUnits(at: now) + session.estimatedUnits(at: now)
 
-        func add(_ id: String, _ at: Date, _ title: String, _ body: String) {
-            guard at.timeIntervalSince(now) >= 5 else { return }
-            cues.append(PlannedCue(id: id, at: at, title: title, body: body))
-        }
+        let pastPrompts = session.prompts.filter { $0.at <= now }
+        let lastDrinkAt = session.drinks.map(\.at).filter { $0 <= now }.max()
+        var anchor = max(start, lastDrinkAt ?? start, pastPrompts.map(\.at).max() ?? start)
+        let isFresh = session.drinks.isEmpty && pastPrompts.isEmpty
+        let horizon = start.addingTimeInterval(session.plannedSeconds * 3 + 2 * 3600)
+        let planned = session.plannedSeconds
+        let boundaries = [planned * 0.45, planned * 0.75, planned, planned + 30 * 60]
+            .map { start.addingTimeInterval($0) }
 
-        if session.drinks.isEmpty {
-            add(
-                "log",
-                start.addingTimeInterval(20 * 60),
-                "记上一杯",
-                "开喝二十分钟了。喝了的话记一杯，我才算得准。"
-            )
-        }
-
-        if units < Double(session.softLimit), let last = session.drinks.last {
-            add(
-                "interval",
-                last.at.addingTimeInterval(interval),
-                "间隔到了",
-                "你给自己留的 \(session.minIntervalMinutes) 分钟到了。这不是叫你续杯，是问你要不要停在这里。"
-            )
-        }
-
-        add(
-            "near-time",
-            start.addingTimeInterval(planned * 0.75),
-            "快到你定的时间",
-            "预定时间过去四分之三了。可以开始收杯。"
-        )
-        add(
-            "due-time",
-            planEnd,
-            "时间到了",
-            "这场预定的 \(Format.minutes(session.plannedMinutes))结束了。"
-        )
-        add(
-            "over-time",
-            planEnd.addingTimeInterval(30 * 60),
-            "超时了",
-            "已经超出预定半小时。现在停比较好。"
-        )
-
-        if units >= Double(session.hardLimit) {
-            for step in 1...6 {
-                add(
-                    "over-\(step)",
-                    now.addingTimeInterval(TimeInterval(step) * 10 * 60),
-                    "该停了",
-                    "已经 \(Format.units(units)) 标准杯，超过你定的 \(session.hardLimit)。我还会再提醒。"
-                )
+        var result: [Prompt] = []
+        while result.count < promptBudget {
+            let current = intensity(units: units, elapsed: anchor.timeIntervalSince(start), session: session)
+            var wait = gap(for: current, session: session)
+            if isFresh && result.isEmpty {
+                wait = min(wait, 20 * 60)
             }
-        } else if units >= Double(session.softLimit) {
-            for step in 1...4 {
-                add(
-                    "due-\(step)",
-                    now.addingTimeInterval(TimeInterval(step) * 15 * 60),
-                    "可以停了",
-                    "已经 \(Format.units(units)) 标准杯，你的线是 \(session.softLimit)。"
-                )
+            var at = anchor.addingTimeInterval(wait)
+            // 对齐到下一级的起点，保证每一级都至少提醒一次；离得很近就并到那一刻。
+            if let boundary = boundaries.first(where: { $0 > anchor.addingTimeInterval(60) }),
+               boundary <= at || boundary.timeIntervalSince(at) < wait * 0.5 {
+                at = boundary
             }
+            if at < now.addingTimeInterval(60) {
+                at = now.addingTimeInterval(60)
+            }
+            if at > horizon {
+                break
+            }
+            let estimate = rate * at.timeIntervalSince(anchor)
+            units += estimate
+            let level = intensity(units: units, elapsed: at.timeIntervalSince(start), session: session)
+            result.append(
+                Prompt(
+                    id: UUID(),
+                    at: at,
+                    level: level,
+                    estimate: estimate,
+                    projectedUnits: units,
+                    reply: nil,
+                    drinkID: nil
+                )
+            )
+            anchor = at
         }
-
-        var seen = Set<String>()
-        return cues
-            .sorted { $0.at < $1.at }
-            .filter { seen.insert($0.id).inserted }
+        return result
     }
 
-    private static func isTooFast(_ session: Session, now: Date, minGap: TimeInterval) -> Bool {
-        guard session.drinks.count >= 2 else { return false }
-        let ordered = session.drinks.sorted { $0.at < $1.at }
-        guard let last = ordered.last, let previous = ordered.dropLast().last else { return false }
+    /// 通知文案。越往后越直接。`ordinal` 是进入越线后的第几次提醒。
+    static func notificationCopy(for prompt: Prompt, session: Session, ordinal: Int) -> (title: String, body: String) {
+        let n = Format.units(prompt.projectedUnits)
+        let soft = session.softLimit
+        let hard = session.hardLimit
+        let unitsOver = prompt.projectedUnits >= Double(hard) - 0.0001
+        let unitsDue = prompt.projectedUnits >= Double(soft) - 0.0001
+        let overMinutes = max(0, Int(prompt.at.timeIntervalSince(session.startedAt) - session.plannedSeconds) / 60)
+        let overGap = Int(gap(for: .over, session: session) / 60)
+
+        switch prompt.level {
+        case .quiet:
+            if prompt.projectedUnits < 0.95 && session.drinks.isEmpty {
+                return ("开喝了吗？", "喝了就点「喝了一杯」。不理也行，我按节奏估。")
+            }
+            return ("大概第 \(n) 杯了？", "点一下帮我对个数。不理也行，我按节奏估。")
+        case .steady:
+            return ("约 \(n) 杯了", "节奏还行。下一杯慢一点，先喝口水。")
+        case .near:
+            return ("快到线了", "约 \(n) 杯，你的线是 \(soft)。这杯就当最后一杯。")
+        case .due:
+            if unitsDue {
+                return ("到线了，收吧", "约 \(n) 杯，到你定的 \(soft) 杯了。现在停，刚刚好。")
+            }
+            return ("时间到了，收吧", "预定的 \(Format.minutes(session.plannedMinutes))到了。现在停，刚刚好。")
+        case .over:
+            let lead = unitsOver
+                ? "约 \(n) 杯，已经超过你定的上限 \(hard)。"
+                : "已经超出预定 \(overMinutes) 分钟。"
+            let tail = ordinal >= 4
+                ? "现在停下，比再喝一杯好得多。"
+                : "每 \(overGap) 分钟提醒一次，直到你点「我收杯了」。"
+            return ("停。第 \(ordinal) 次提醒", lead + tail)
+        }
+    }
+
+    // MARK: - 私有
+
+    /// 两杯离得太近。间隔按上一杯的量加权：一两白酒要比一小瓶啤酒等得更久。
+    private static func tooFast(_ session: Session, now: Date) -> (isTooFast: Bool, waitMinutes: Int) {
+        let ordered = session.drinks.filter { $0.at <= now }.sorted { $0.at < $1.at }
+        guard ordered.count >= 2 else { return (false, 0) }
+        let last = ordered[ordered.count - 1]
+        let previous = ordered[ordered.count - 2]
+        let weight = min(2, max(0.5, previous.grams / gramsPerStandard))
+        let need = session.minIntervalSeconds * weight
         let gap = last.at.timeIntervalSince(previous.at)
         let since = now.timeIntervalSince(last.at)
-        return gap < minGap && since < minGap
-    }
-
-    private static func waitMinutes(_ session: Session, now: Date, minGap: TimeInterval, tooFast: Bool) -> Int {
-        guard tooFast, let last = session.drinks.max(by: { $0.at < $1.at }) else { return 1 }
-        let remain = minGap - now.timeIntervalSince(last.at)
-        return max(1, Int(ceil(remain / 60)))
+        guard gap < need, since < need else { return (false, 0) }
+        return (true, max(1, Int(ceil((need - since) / 60))))
     }
 
     private static func copy(
         cue: Cue,
         session: Session,
         units: Double,
-        tooFast: Bool,
-        waitMinutes: Int,
-        gramNear: Bool,
-        timeNear: Bool,
-        gramDue: Bool,
-        timeDue: Bool,
-        gramOver: Bool,
-        timeOver: Bool
+        elapsed: TimeInterval,
+        waitMinutes: Int
     ) -> (title: String, message: String) {
-        let pace = tooFast ? "上两杯隔得太近，先再等 \(waitMinutes) 分钟。" : ""
+        let n = Format.units(units)
+        let unitsDue = units >= Double(session.softLimit) - 0.0001
+        let unitsOver = units >= Double(session.hardLimit) - 0.0001
         switch cue {
         case .calm:
-            return ("慢慢喝", "这场刚开始。喝下第一口时记一杯，我按你的线来提醒。")
+            return ("慢慢来", "放下手机，到点我会问你。")
         case .settle:
-            if session.drinks.isEmpty {
-                return ("记上一杯", "开喝有一会儿了。喝了的话记一杯，我才算得准。")
-            }
-            return ("先别急着续", "现在是 \(Format.units(units)) 标准杯。下一杯不用那么快，先喝点水。")
+            return ("节奏刚好", "下一杯不急，先喝口水。")
         case .hurried:
-            return ("喝得有点快", "上两杯隔得太近。先停大约 \(waitMinutes) 分钟，喝口水。")
+            return ("有点快了", "上两杯离得太近。停一会儿，喝口水，大约 \(waitMinutes) 分钟。")
         case .near:
-            let base: String
-            if gramNear && timeNear {
-                base = "杯量和时间都快到了。可以开始收。"
-            } else if gramNear {
-                base = "再喝一点就到你定的 \(session.softLimit) 标准杯。这杯可以当最后一杯。"
-            } else {
-                base = "预定时间过去四分之三了。开始收杯还来得及。"
+            if units >= Double(session.softLimit) * 0.75 {
+                return ("快到线了", "约 \(n) 杯，你的线是 \(session.softLimit)。这杯就当最后一杯。")
             }
-            return ("快到线了", pace.isEmpty ? base : base + pace)
+            return ("快到时间了", "预定时间过了大半，可以开始收尾。")
         case .due:
-            let base: String
-            if gramDue && timeDue {
-                base = "杯量和时间都到线了。现在是 \(Format.units(units)) 标准杯。"
-            } else if gramDue {
-                base = "到你定的 \(session.softLimit) 标准杯了。这杯可以是最后一杯。"
-            } else {
-                base = "预定的 \(Format.minutes(session.plannedMinutes))到了。还想喝的话，也先停一停。"
+            if unitsDue {
+                return ("可以收了", "约 \(n) 杯，到你定的 \(session.softLimit) 杯了。")
             }
-            return ("可以停了", pace.isEmpty ? base : base + pace)
+            return ("时间到了", "预定的 \(Format.minutes(session.plannedMinutes))到了。现在停，刚刚好。")
         case .over:
-            let base: String
-            if gramOver {
-                base = "已经 \(Format.units(units)) 标准杯，超过你定的 \(session.hardLimit)。再记要按住按钮，我还会继续提醒。"
-            } else if timeOver {
-                base = "已经超出预定时间半小时。现在停比较好。"
-            } else {
-                base = "已经越过你给自己的线。现在停。"
+            if unitsOver {
+                return ("该停了", "约 \(n) 杯，超过你定的上限 \(session.hardLimit)。提醒会越来越密，直到你收杯。")
             }
-            return ("停一下", base)
+            let over = max(0, Int(elapsed - session.plannedSeconds) / 60)
+            return ("该停了", "已经超出预定 \(over) 分钟。提醒会越来越密，直到你收杯。")
+        }
+    }
+}
+
+// MARK: - 模型
+
+/// 提醒强度，从安静到强硬共五级。
+enum Intensity: Int, Codable, Comparable, CaseIterable {
+    case quiet = 0
+    case steady
+    case near
+    case due
+    case over
+
+    static func < (lhs: Intensity, rhs: Intensity) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    var label: String {
+        switch self {
+        case .quiet: "轻声"
+        case .steady: "留意"
+        case .near: "收尾"
+        case .due: "到线"
+        case .over: "强提醒"
         }
     }
 }
@@ -248,41 +317,47 @@ enum Cue: String, Codable, Equatable {
     case near
     case due
     case over
+}
 
-    var rank: Int {
-        switch self {
-        case .calm: 0
-        case .settle: 1
-        case .hurried: 2
-        case .near: 3
-        case .due: 4
-        case .over: 5
-        }
-    }
+enum PromptReply: String, Codable, Equatable {
+    /// 在通知上确认喝了一杯。
+    case drank
+    /// 确认这段时间没喝。
+    case skipped
+    /// 用户自己手动记了一杯，这条提醒被那一杯覆盖。
+    case logged
+}
+
+/// 一次主动提醒。没回应且已经过去的提醒按 `estimate` 计入估算杯数。
+struct Prompt: Codable, Identifiable, Equatable {
+    var id: UUID
+    var at: Date
+    var level: Intensity
+    var estimate: Double
+    var projectedUnits: Double
+    var reply: PromptReply?
+    var drinkID: UUID?
 }
 
 struct PaceSnapshot: Equatable {
     var cue: Cue
-    var rank: Int
+    var intensity: Intensity
     var title: String
     var message: String
-    var standardDrinks: Double
+    var units: Double
+    var confirmedUnits: Double
+    var estimatedUnits: Double
     var drinkCount: Int
     var waterCount: Int
     var elapsed: TimeInterval
     var planned: TimeInterval
     var isTooFast: Bool
     var waitMinutes: Int
-    var cooldownRemaining: TimeInterval
+    var sinceLastDrink: TimeInterval?
+    var nextPrompt: Prompt?
+    var pendingPrompt: Prompt?
     var softLimit: Int
     var hardLimit: Int
-}
-
-struct PlannedCue: Equatable {
-    var id: String
-    var at: Date
-    var title: String
-    var body: String
 }
 
 struct DrinkPreset: Identifiable, Equatable {
@@ -313,6 +388,10 @@ struct DrinkLog: Codable, Identifiable, Equatable {
     var detail: String
     var grams: Double
     var at: Date
+
+    var preset: DrinkPreset {
+        DrinkPreset(id: presetID, name: name, detail: detail, grams: grams)
+    }
 }
 
 struct WaterLog: Codable, Identifiable, Equatable {
@@ -324,35 +403,86 @@ struct Session: Codable, Identifiable, Equatable {
     var id: UUID
     var startedAt: Date
     var endedAt: Date?
+    var planName: String = "自定义"
     var plannedMinutes: Int
     var softLimit: Int
     var hardLimit: Int
     var minIntervalMinutes: Int
+    var estimateWhenSilent: Bool = true
     var drinks: [DrinkLog]
     var waters: [WaterLog]
+    var prompts: [Prompt] = []
     var lastAnnouncedRank: Int
     var lastAnnouncedCue: Cue? = nil
 
+    enum CodingKeys: String, CodingKey {
+        case id, startedAt, endedAt, planName, plannedMinutes, softLimit, hardLimit
+        case minIntervalMinutes, estimateWhenSilent, drinks, waters, prompts
+        case lastAnnouncedRank, lastAnnouncedCue
+    }
+
+    var plannedSeconds: TimeInterval { TimeInterval(max(plannedMinutes, 1) * 60) }
+    var minIntervalSeconds: TimeInterval { TimeInterval(max(minIntervalMinutes, 1) * 60) }
+
     var alcoholGrams: Double { drinks.reduce(0) { $0 + $1.grams } }
     var standardDrinks: Double { alcoholGrams / Pace.gramsPerStandard }
+
+    func confirmedUnits(at time: Date) -> Double {
+        drinks.filter { $0.at <= time }.reduce(0) { $0 + $1.grams } / Pace.gramsPerStandard
+    }
+
+    func estimatedUnits(at time: Date) -> Double {
+        prompts.filter { $0.reply == nil && $0.at <= time }.reduce(0) { $0 + $1.estimate }
+    }
+
+    func units(at time: Date) -> Double {
+        confirmedUnits(at: time) + estimatedUnits(at: time)
+    }
 
     var duration: TimeInterval {
         let end = endedAt ?? Date()
         return max(0, end.timeIntervalSince(startedAt))
     }
 
+    /// 只按杯量判定结果。坐得久但喝得少不是失败，超时只作为附注。
     func outcome(at end: Date) -> Outcome {
-        if drinks.isEmpty {
+        let units = units(at: end)
+        if units < 0.05 {
             return .empty
         }
-        switch Pace.evaluate(self, now: end).cue {
-        case .over:
+        if units >= Double(hardLimit) - 0.0001 {
             return .crossed
-        case .due:
-            return .touched
-        case .calm, .settle, .hurried, .near:
-            return .within
         }
+        if units >= Double(softLimit) - 0.0001 {
+            return .touched
+        }
+        return .within
+    }
+
+    /// 比预定多坐了多少分钟（没超时为 0）。
+    var overtimeMinutes: Int {
+        max(0, Int(duration - plannedSeconds) / 60)
+    }
+}
+
+extension Session {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
+        planName = try c.decodeIfPresent(String.self, forKey: .planName) ?? "自定义"
+        plannedMinutes = try c.decode(Int.self, forKey: .plannedMinutes)
+        softLimit = try c.decode(Int.self, forKey: .softLimit)
+        hardLimit = try c.decode(Int.self, forKey: .hardLimit)
+        minIntervalMinutes = try c.decode(Int.self, forKey: .minIntervalMinutes)
+        // 旧版本没有估算，按「不估算」读回来，避免历史记录凭空多出杯数。
+        estimateWhenSilent = try c.decodeIfPresent(Bool.self, forKey: .estimateWhenSilent) ?? false
+        drinks = try c.decodeIfPresent([DrinkLog].self, forKey: .drinks) ?? []
+        waters = try c.decodeIfPresent([WaterLog].self, forKey: .waters) ?? []
+        prompts = try c.decodeIfPresent([Prompt].self, forKey: .prompts) ?? []
+        lastAnnouncedRank = try c.decodeIfPresent(Int.self, forKey: .lastAnnouncedRank) ?? 0
+        lastAnnouncedCue = try c.decodeIfPresent(Cue.self, forKey: .lastAnnouncedCue)
     }
 }
 
@@ -365,9 +495,9 @@ enum Outcome: Equatable {
     var title: String {
         switch self {
         case .within: "收在线内"
-        case .touched: "到线才收"
+        case .touched: "到线就收"
         case .crossed: "越过线了"
-        case .empty: "未饮酒收场"
+        case .empty: "滴酒未沾"
         }
     }
 
@@ -378,24 +508,28 @@ enum Outcome: Equatable {
         case .touched:
             "刚好到线。能停下来就很好。"
         case .crossed:
-            "这场越过线了。下次可以把杯数或时间定短一点。"
+            "这场越过线了。下次可以把线定低一点，或者早点开始收尾。"
         case .empty:
-            "这场没有记录饮酒，清爽收杯。"
+            "这场没有喝酒，清爽收场。"
         }
     }
 }
 
-struct Plan: Equatable {
+struct Plan: Equatable, Identifiable {
+    var id: String
     var name: String
-    var detail: String
     var plannedMinutes: Int
     var softLimit: Int
     var hardLimit: Int
     var minIntervalMinutes: Int
 
+    var detail: String {
+        "\(softLimit) 标准杯 · \(Format.minutes(plannedMinutes))"
+    }
+
     static let light = Plan(
+        id: "light",
         name: "小酌",
-        detail: "2 标准杯 · 90 分钟",
         plannedMinutes: 90,
         softLimit: 2,
         hardLimit: 3,
@@ -403,8 +537,8 @@ struct Plan: Equatable {
     )
 
     static let dinner = Plan(
+        id: "dinner",
         name: "聚餐",
-        detail: "4 标准杯 · 3 小时",
         plannedMinutes: 180,
         softLimit: 4,
         hardLimit: 6,
@@ -417,24 +551,51 @@ struct Settings: Codable, Equatable {
     var softLimit: Int = 3
     var hardLimit: Int = 5
     var minIntervalMinutes: Int = 30
-    var keepScreenOn: Bool = true
+    var keepScreenOn: Bool = false
+    var estimateWhenSilent: Bool = true
+    var selectedPlanID: String = Plan.light.id
 
     mutating func normalize() {
         plannedMinutes = min(360, max(30, plannedMinutes))
         softLimit = min(12, max(1, softLimit))
         hardLimit = min(16, max(softLimit, hardLimit))
         minIntervalMinutes = min(90, max(10, minIntervalMinutes))
+        if ![Plan.light.id, Plan.dinner.id, "custom"].contains(selectedPlanID) {
+            selectedPlanID = Plan.light.id
+        }
     }
 
-    var plan: Plan {
+    var customPlan: Plan {
         Plan(
+            id: "custom",
             name: "自定义",
-            detail: "\(softLimit) 标准杯 · \(Format.minutes(plannedMinutes))",
             plannedMinutes: plannedMinutes,
             softLimit: softLimit,
             hardLimit: hardLimit,
             minIntervalMinutes: minIntervalMinutes
         )
+    }
+
+    var selectedPlan: Plan {
+        switch selectedPlanID {
+        case Plan.dinner.id: .dinner
+        case "custom": customPlan
+        default: .light
+        }
+    }
+}
+
+extension Settings {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let base = Settings()
+        plannedMinutes = try c.decodeIfPresent(Int.self, forKey: .plannedMinutes) ?? base.plannedMinutes
+        softLimit = try c.decodeIfPresent(Int.self, forKey: .softLimit) ?? base.softLimit
+        hardLimit = try c.decodeIfPresent(Int.self, forKey: .hardLimit) ?? base.hardLimit
+        minIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .minIntervalMinutes) ?? base.minIntervalMinutes
+        keepScreenOn = try c.decodeIfPresent(Bool.self, forKey: .keepScreenOn) ?? base.keepScreenOn
+        estimateWhenSilent = try c.decodeIfPresent(Bool.self, forKey: .estimateWhenSilent) ?? base.estimateWhenSilent
+        selectedPlanID = try c.decodeIfPresent(String.self, forKey: .selectedPlanID) ?? base.selectedPlanID
     }
 }
 
@@ -459,6 +620,12 @@ enum Format {
         return "\(minutes) 分钟"
     }
 
+    /// 1:12 这样的短时长。
+    static func hm(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval)) / 60
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
     static func clock(_ interval: TimeInterval) -> String {
         let total = max(0, Int(interval))
         let hours = total / 3600
@@ -471,7 +638,7 @@ enum Format {
     }
 
     static func shortTime(_ date: Date) -> String {
-        date.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))
+        date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(Locale(identifier: "zh_CN")))
     }
 
     static func day(_ date: Date) -> String {
@@ -507,95 +674,113 @@ enum PaceChecks {
         let calm = Pace.evaluate(make(start: start), now: start.addingTimeInterval(60))
         check(calm.cue == .calm, "刚开始应该是 calm，实际 \(calm.cue)")
 
-        let settleTime = Pace.evaluate(make(start: start), now: start.addingTimeInterval(25 * 60))
-        check(settleTime.cue == .settle, "25 分钟还没记杯应该提醒补记")
-
         let oneBeer = Pace.evaluate(
             make(start: start, soft: 3, hard: 5, drinks: [drink("beer330", at: start.addingTimeInterval(60))]),
             now: start.addingTimeInterval(5 * 60)
         )
-        check(oneBeer.cue == .settle, "一小瓶啤酒离 3 标准杯还远，不应升到 near")
+        check(oneBeer.cue == .settle, "一小瓶啤酒离 3 标准杯还远，应是 settle，实际 \(oneBeer.cue)")
 
         let fast = Pace.evaluate(
-            make(
-                start: start,
-                soft: 6,
-                hard: 8,
-                interval: 30,
-                drinks: [
-                    drink("beer500", at: start.addingTimeInterval(10 * 60)),
-                    drink("beer500", at: start.addingTimeInterval(20 * 60)),
-                ]
-            ),
+            make(start: start, soft: 6, hard: 8, interval: 30, drinks: [
+                drink("beer500", at: start.addingTimeInterval(10 * 60)),
+                drink("beer500", at: start.addingTimeInterval(20 * 60)),
+            ]),
             now: start.addingTimeInterval(25 * 60)
         )
         check(fast.cue == .hurried, "两杯只隔 10 分钟应该是 hurried，实际 \(fast.cue)")
 
         let fastRecovered = Pace.evaluate(
-            make(
-                start: start,
-                soft: 6,
-                hard: 8,
-                interval: 30,
-                drinks: [
-                    drink("beer500", at: start),
-                    drink("beer500", at: start.addingTimeInterval(10 * 60)),
-                ]
-            ),
-            now: start.addingTimeInterval(50 * 60)
+            make(start: start, soft: 6, hard: 8, interval: 30, drinks: [
+                drink("beer500", at: start),
+                drink("beer500", at: start.addingTimeInterval(10 * 60)),
+            ]),
+            now: start.addingTimeInterval(60 * 60)
         )
         check(fastRecovered.cue != .hurried, "间隔已经过去，不应继续算喝太快")
 
-        let baijiuNear = Pace.evaluate(
-            make(start: start, soft: 2, hard: 3, drinks: [drink("baijiu", at: start)]),
-            now: start.addingTimeInterval(2 * 60)
+        // 白酒更烈，同样 35 分钟的间隔仍然算快；啤酒 330 就不算。
+        let baijiuGap = Pace.evaluate(
+            make(start: start, soft: 6, hard: 8, interval: 30, drinks: [
+                drink("baijiu", at: start),
+                drink("beer330", at: start.addingTimeInterval(35 * 60)),
+            ]),
+            now: start.addingTimeInterval(36 * 60)
         )
-        check(baijiuNear.cue == .near, "一两白酒应接近 2 标准杯的线，实际 \(baijiuNear.cue)")
+        check(baijiuGap.isTooFast, "一两白酒后 35 分钟就续，应按加权间隔算快")
+        let beerGap = Pace.evaluate(
+            make(start: start, soft: 6, hard: 8, interval: 30, drinks: [
+                drink("beer330", at: start),
+                drink("beer330", at: start.addingTimeInterval(35 * 60)),
+            ]),
+            now: start.addingTimeInterval(36 * 60)
+        )
+        check(!beerGap.isTooFast, "啤酒 330 后 35 分钟不算快")
 
         let due = Pace.evaluate(
             make(start: start, soft: 2, hard: 4, drinks: [drink("baijiu", at: start), drink("baijiu", at: start.addingTimeInterval(40 * 60))]),
             now: start.addingTimeInterval(45 * 60)
         )
-        check(due.cue == .due, "两杯白酒应到线，实际 \(due.cue) units \(due.standardDrinks)")
+        check(due.cue == .due, "两杯白酒应到线，实际 \(due.cue)")
 
         let over = Pace.evaluate(
-            make(
-                start: start,
-                soft: 2,
-                hard: 3,
-                drinks: [
-                    drink("baijiu", at: start),
-                    drink("baijiu", at: start.addingTimeInterval(40 * 60)),
-                    drink("baijiu", at: start.addingTimeInterval(80 * 60)),
-                ]
-            ),
+            make(start: start, soft: 2, hard: 3, drinks: [
+                drink("baijiu", at: start),
+                drink("baijiu", at: start.addingTimeInterval(40 * 60)),
+                drink("baijiu", at: start.addingTimeInterval(80 * 60)),
+            ]),
             now: start.addingTimeInterval(81 * 60)
         )
-        check(over.cue == .over, "三杯白酒应越过硬线")
+        check(over.cue == .over, "三杯白酒应越过上限")
 
-        let timeDue = Pace.evaluate(make(start: start, minutes: 90), now: start.addingTimeInterval(90 * 60))
-        check(timeDue.cue == .due, "到点即使没喝酒也该提醒收杯")
+        check(Pace.evaluate(make(start: start, minutes: 90), now: start.addingTimeInterval(90 * 60)).cue == .due, "到点应提醒收杯")
+        check(Pace.evaluate(make(start: start, minutes: 90), now: start.addingTimeInterval(121 * 60)).cue == .over, "超时半小时应升到 over")
 
-        let timeOver = Pace.evaluate(make(start: start, minutes: 90), now: start.addingTimeInterval(121 * 60))
-        check(timeOver.cue == .over, "超时半小时应升到 over")
+        // 结果只看杯量：坐了很久但只喝一小瓶，不算越线。
+        var longSit = make(start: start, minutes: 90, soft: 3, hard: 5, drinks: [drink("beer330", at: start)])
+        longSit.endedAt = start.addingTimeInterval(200 * 60)
+        check(longSit.outcome(at: longSit.endedAt!) == .within, "超时但喝得少应是 within")
+        check(longSit.overtimeMinutes == 110, "超时分钟应为 110，实际 \(longSit.overtimeMinutes)")
 
-        let future = Pace.plannedCues(session: make(start: start), now: start.addingTimeInterval(60))
-        check(future.allSatisfy { $0.at.timeIntervalSince(start.addingTimeInterval(60)) >= 5 }, "不应安排已经过去的提醒")
-        check(Set(future.map(\.id)).count == future.count, "提醒 id 重复")
-        check(future.contains { $0.id == "log" }, "还没记杯时应安排补记提醒")
+        // 提醒时间表：越往后越密，且最终升到强提醒。
+        let fresh = make(start: start, minutes: 90, soft: 2, hard: 3, interval: 40, estimate: true)
+        let plan = Pace.projectPrompts(fresh, now: start.addingTimeInterval(30))
+        check(!plan.isEmpty, "应排出提醒")
+        check(plan.count <= Pace.promptBudget, "不能超过提醒上限")
+        check(plan[0].at.timeIntervalSince(start) <= 20 * 60 + 1, "第一条提醒应在 20 分钟内")
+        var lastAt = start
+        for prompt in plan {
+            let gap = prompt.at.timeIntervalSince(lastAt)
+            check(gap > 0, "提醒时间必须递增")
+            lastAt = prompt.at
+        }
+        check(Set(plan.map(\.level)) == Set(Intensity.allCases), "五级提醒都应出现，实际 \(Set(plan.map(\.level)))")
+        let overGaps = zip(plan, plan.dropFirst()).filter { $0.0.level == .over }.map { $0.1.at.timeIntervalSince($0.0.at) }
+        check(overGaps.allSatisfy { $0 <= 4 * 60 + 1 }, "强提醒应每 4 分钟一次")
+        check(plan.map(\.level).last == .over, "一直不回应应升到强提醒")
+        check(zip(plan, plan.dropFirst()).allSatisfy { $0.level <= $1.level }, "强度只升不降")
 
-        let logged = Pace.plannedCues(
-            session: make(start: start, drinks: [drink("beer330", at: start)]),
-            now: start.addingTimeInterval(60)
-        )
-        check(!logged.contains { $0.id == "log" }, "已经记杯就不必再催补记")
+        // 不估算时，杯数只来自确认。
+        let noEstimate = make(start: start, estimate: false)
+        check(Pace.projectPrompts(noEstimate, now: start).allSatisfy { $0.estimate == 0 }, "关闭估算时不应估杯")
+
+        // 过去的未回应提醒计入估算；回应「没喝」后不再计入。
+        var estimated = fresh
+        estimated.prompts = Pace.projectPrompts(estimated, now: start)
+        let afterFirst = estimated.prompts[0].at.addingTimeInterval(1)
+        check(estimated.estimatedUnits(at: afterFirst) > 0, "未回应的提醒应计入估算")
+        estimated.prompts[0].reply = .skipped
+        check(estimated.estimatedUnits(at: afterFirst) == 0, "回应没喝后不应计入")
+
+        // 重排确定性：同样记录重排两次，时间一致。
+        let a = Pace.projectPrompts(fresh, now: start.addingTimeInterval(120)).map(\.at)
+        let b = Pace.projectPrompts(fresh, now: start.addingTimeInterval(180)).map(\.at)
+        check(a.prefix(5) == b.prefix(5), "重排不应把提醒往后推")
 
         let customPreset = DrinkPreset.custom(name: "精酿IPA", volumeMl: 500, abv: 7.0)
         check(abs(customPreset.grams - 28.0) < 0.01, "500ml 7% 精酿酒精克数应约为 28g")
-        check(abs(customPreset.standardDrinks - 2.0) < 0.01, "28g 应折算为 2.0 标准杯")
 
-        let emptySession = make(start: start)
-        check(emptySession.outcome(at: start.addingTimeInterval(10 * 60)) == .empty, "空会话结算应为 empty")
+        check(make(start: start).outcome(at: start.addingTimeInterval(600)) == .empty, "空场次结算应为 empty")
+        print("PaceChecks OK · 提醒 \(plan.count) 条 · 间隔(分) \(plan.prefix(12).map { Int($0.at.timeIntervalSince(start) / 60) })")
     }
 
     private static func make(
@@ -604,6 +789,7 @@ enum PaceChecks {
         soft: Int = 2,
         hard: Int = 3,
         interval: Int = 30,
+        estimate: Bool = false,
         drinks: [DrinkLog] = []
     ) -> Session {
         Session(
@@ -614,6 +800,7 @@ enum PaceChecks {
             softLimit: soft,
             hardLimit: hard,
             minIntervalMinutes: interval,
+            estimateWhenSilent: estimate,
             drinks: drinks,
             waters: [],
             lastAnnouncedRank: 0
@@ -634,5 +821,11 @@ enum PaceChecks {
             exit(1)
         }
     }
+
+    static let _autoRun: Void = {
+        run()
+    }()
 }
+
+let _ = PaceChecks._autoRun
 #endif

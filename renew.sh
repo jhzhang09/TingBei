@@ -29,6 +29,7 @@ log "检测到设备 $DEVICE_NAME 在线，开始增量编译与签名..."
 xcodebuild -project "$SCRIPT_DIR/TingBei.xcodeproj" \
     -scheme TingBei \
     -destination "id=$DEVICE_UDID" \
+    -allowProvisioningUpdates \
     build \
     -quiet
 
