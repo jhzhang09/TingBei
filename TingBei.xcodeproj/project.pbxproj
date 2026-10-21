@@ -22,6 +22,8 @@
 		A10000000000000000000005 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		A10000000000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000008 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		A10000000000000000000009 /* renew.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = renew.sh; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +40,8 @@
 		A10000000000000000000021 = {
 			isa = PBXGroup;
 			children = (
+				A10000000000000000000008 /* README.md */,
+				A10000000000000000000009 /* renew.sh */,
 				A10000000000000000000007 /* Info.plist */,
 				A10000000000000000000022 /* TingBei */,
 				A10000000000000000000023 /* Products */,
