@@ -134,9 +134,9 @@ TingBei/
 
 ## 🚀 编译与运行要求
 
-* **macOS**：macOS 15.0+
-* **Xcode**：Xcode 16.0+（支持 iOS 17.0+ / 27.0+ SDK）
-* **设备支持**：iPhone（iOS 17.0 或更高版本）
+* **macOS**：macOS 27.0+
+* **Xcode**：Xcode 27.0+（包含 iOS 27.0+ SDK）
+* **设备支持**：iPhone（iOS 27.0 或更高版本）
 
 ### 命令行编译
 
