@@ -16,6 +16,10 @@
 		A10000000000000000000013 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* SessionStore.swift */; };
 		A10000000000000000000014 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* Views.swift */; };
 		A10000000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* Assets.xcassets */; };
+		B00000000000000000000001 /* glass.caf in Resources */ = {isa = PBXBuildFile; fileRef = S00000000000000000000001 /* glass.caf */; };
+		B00000000000000000000002 /* bell.caf in Resources */ = {isa = PBXBuildFile; fileRef = S00000000000000000000002 /* bell.caf */; };
+		B00000000000000000000003 /* water.caf in Resources */ = {isa = PBXBuildFile; fileRef = S00000000000000000000003 /* water.caf */; };
+		B00000000000000000000004 /* wood.caf in Resources */ = {isa = PBXBuildFile; fileRef = S00000000000000000000004 /* wood.caf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,6 +60,10 @@
 		A10000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000008 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		A10000000000000000000009 /* renew.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = renew.sh; sourceTree = "<group>"; };
+		S00000000000000000000001 /* glass.caf */ = {isa = PBXFileReference; lastKnownFileType = audio.caf; path = Sounds/glass.caf; sourceTree = "<group>"; };
+		S00000000000000000000002 /* bell.caf */ = {isa = PBXFileReference; lastKnownFileType = audio.caf; path = Sounds/bell.caf; sourceTree = "<group>"; };
+		S00000000000000000000003 /* water.caf */ = {isa = PBXFileReference; lastKnownFileType = audio.caf; path = Sounds/water.caf; sourceTree = "<group>"; };
+		S00000000000000000000004 /* wood.caf */ = {isa = PBXFileReference; lastKnownFileType = audio.caf; path = Sounds/wood.caf; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,6 +98,10 @@
 				A10000000000000000000004 /* SessionStore.swift */,
 				A10000000000000000000005 /* Views.swift */,
 				A10000000000000000000006 /* Assets.xcassets */,
+				S00000000000000000000001 /* glass.caf */,
+				S00000000000000000000002 /* bell.caf */,
+				S00000000000000000000003 /* water.caf */,
+				S00000000000000000000004 /* wood.caf */,
 			);
 			path = TingBei;
 			sourceTree = "<group>";
@@ -194,6 +206,10 @@ A10000000000000000000023 /* Products */ = {
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000015 /* Assets.xcassets in Resources */,
+				B00000000000000000000001 /* glass.caf in Resources */,
+				B00000000000000000000002 /* bell.caf in Resources */,
+				B00000000000000000000003 /* water.caf in Resources */,
+				B00000000000000000000004 /* wood.caf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

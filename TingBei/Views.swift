@@ -119,16 +119,17 @@ struct NightBackground: View {
 
 struct HomeView: View {
     @Environment(SessionStore.self) private var store
-    @State private var isCustomExpanded = false
     @State private var showSecretSignature = false
 
     var body: some View {
         @Bindable var store = store
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 22) {
                 header
-                plansSection
-                customSection
+                beveragePickerSection
+                planSelectionSection
+                startSessionSection
+                settingsAndPreferencesSection
                 if !store.history.isEmpty {
                     historySection
                 }
@@ -161,7 +162,7 @@ struct HomeView: View {
                     .font(.system(size: 44, weight: .light, design: .serif))
                     .foregroundStyle(Theme.cream)
             }
-            Text("开喝后放下手机。无需频繁掏出记录，app 将按节拍主动提醒，随时间与酒意递增密度，守护从容。")
+            Text("开喝后放下手机。无需频繁掏出记录，app 按节拍主动推测提醒，随时间与酒意递增密度，守护从容。")
                 .font(.subheadline)
                 .lineSpacing(4)
                 .foregroundStyle(Theme.mute)
@@ -170,78 +171,177 @@ struct HomeView: View {
         .padding(.top, 10)
     }
 
-    private var plansSection: some View {
-        VStack(spacing: 12) {
-            PlanCard(plan: .light, isSelected: store.settings.selectedPlanID == Plan.light.id) {
-                store.settings.selectedPlanID = Plan.light.id
-                store.start(.light)
-            }
-            PlanCard(plan: .dinner, isSelected: store.settings.selectedPlanID == Plan.dinner.id) {
-                store.settings.selectedPlanID = Plan.dinner.id
-                store.start(.dinner)
+    // 今晚喝什么选择器
+    private var beveragePickerSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("今晚主要喝什么")
+                .font(.system(.subheadline, design: .serif).weight(.medium))
+                .foregroundStyle(Theme.cream)
+
+            HStack(spacing: 8) {
+                ForEach(BeverageCategory.allCases) { cat in
+                    let isSelected = store.settings.selectedBeverageCategory == cat
+                    Button {
+                        store.settings.selectedBeverageCategory = cat
+                        store.normalizeAndSaveSettings()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: cat.icon)
+                                .font(.caption)
+                            Text(cat.name)
+                                .font(.caption.weight(isSelected ? .semibold : .regular))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(isSelected ? Theme.gold : Theme.raised))
+                        .foregroundStyle(isSelected ? Theme.ink : Theme.cream)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
 
-    private var customSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Button {
-                withAnimation(.smooth(duration: 0.3)) {
-                    isCustomExpanded.toggle()
-                }
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("自定义方案")
-                            .font(.system(.title3, design: .serif))
-                            .foregroundStyle(Theme.cream)
-                        Text("\(store.settings.softLimit) 标准杯 · \(Format.minutes(store.settings.plannedMinutes)) · 基础间隔 \(store.settings.minIntervalMinutes) 分钟")
-                            .font(.caption)
-                            .foregroundStyle(Theme.mute)
+    // 方案选择区域（纯选择，绝不自动开始）
+    private var planSelectionSection: some View {
+        let cat = store.settings.selectedBeverageCategory
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("设定目标场景")
+                .font(.system(.subheadline, design: .serif).weight(.medium))
+                .foregroundStyle(Theme.cream)
+
+            VStack(spacing: 10) {
+                PlanSelectionCard(
+                    title: "小酌",
+                    badge: Plan.light.displayDetail(for: cat),
+                    detail: "轻松微醺，适度怡情",
+                    isSelected: store.settings.selectedPlanID == Plan.light.id
+                ) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        store.settings.selectedPlanID = Plan.light.id
+                        store.normalizeAndSaveSettings()
                     }
-                    Spacer()
-                    Image(systemName: isCustomExpanded ? "chevron.up" : "chevron.down")
-                        .foregroundStyle(Theme.gold)
-                        .font(.subheadline)
+                }
+
+                PlanSelectionCard(
+                    title: "聚餐",
+                    badge: Plan.dinner.displayDetail(for: cat),
+                    detail: "朋友聚会或宴请，从容拉长节拍",
+                    isSelected: store.settings.selectedPlanID == Plan.dinner.id
+                ) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        store.settings.selectedPlanID = Plan.dinner.id
+                        store.normalizeAndSaveSettings()
+                    }
+                }
+
+                PlanSelectionCard(
+                    title: "自定义",
+                    badge: store.settings.customPlan.displayDetail(for: cat),
+                    detail: "自定建议停杯线与预计时长",
+                    isSelected: store.settings.selectedPlanID == "custom"
+                ) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        store.settings.selectedPlanID = "custom"
+                        store.normalizeAndSaveSettings()
+                    }
                 }
             }
-            .buttonStyle(.plain)
 
-            if isCustomExpanded {
+            if store.settings.selectedPlanID == "custom" {
+                customSettingsCard
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private var customSettingsCard: some View {
+        let cat = store.settings.selectedBeverageCategory
+        return VStack(spacing: 14) {
+            SettingStepper(
+                title: "建议停杯线",
+                value: cat.formatPhysical(from: store.settings.softLimit),
+                range: 1...20,
+                step: 1,
+                valueBinding: Binding(
+                    get: { Int(store.settings.softLimit.rounded()) },
+                    set: { store.settings.softLimit = Double($0) }
+                )
+            )
+            SettingStepper(
+                title: "严格警戒线",
+                value: cat.formatPhysical(from: store.settings.hardLimit),
+                range: Int(store.settings.softLimit.rounded())...25,
+                step: 1,
+                valueBinding: Binding(
+                    get: { Int(store.settings.hardLimit.rounded()) },
+                    set: { store.settings.hardLimit = Double($0) }
+                )
+            )
+            SettingStepper(
+                title: "预定时长",
+                value: Format.minutes(store.settings.plannedMinutes),
+                range: 30...360,
+                step: 15,
+                valueBinding: Bindable(store).settings.plannedMinutes
+            )
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.faint, lineWidth: 1))
+        .onChange(of: store.settings) { _, _ in
+            store.normalizeAndSaveSettings()
+        }
+    }
+
+    // 真正开始饮酒的唯一主操作入口
+    private var startSessionSection: some View {
+        let plan = store.settings.selectedPlan
+        let cat = store.settings.selectedBeverageCategory
+        return VStack(spacing: 8) {
+            FillButton(title: "开启今晚 · \(plan.name)", color: Theme.gold) {
+                store.start(plan, category: cat)
+            }
+            Text("首条提醒 30 分钟 · 越线后每 10 分钟强提醒")
+                .font(.caption2)
+                .foregroundStyle(Theme.mute)
+        }
+        .padding(.top, 4)
+    }
+
+    // 独立解耦的提醒设置区块
+    private var settingsAndPreferencesSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("提醒音效与偏好")
+                .font(.system(.subheadline, design: .serif).weight(.medium))
+                .foregroundStyle(Theme.cream)
+
+            VStack(alignment: .leading, spacing: 14) {
+                soundPickerSection
+
+                Button {
+                    store.scheduleTestNotification()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bell.badge.waveform.fill")
+                            .font(.caption)
+                        Text("测试 5 秒后通知与声音")
+                            .font(.caption2.weight(.medium))
+                    }
+                    .foregroundStyle(Theme.gold)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.gold.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+
                 Divider().background(Theme.faint)
-                SettingStepper(
-                    title: "建议停杯线",
-                    value: "\(store.settings.softLimit) 标准杯",
-                    range: 1...12,
-                    step: 1,
-                    valueBinding: Bindable(store).settings.softLimit
-                )
-                SettingStepper(
-                    title: "严格警戒线",
-                    value: "\(store.settings.hardLimit) 标准杯",
-                    range: store.settings.softLimit...16,
-                    step: 1,
-                    valueBinding: Bindable(store).settings.hardLimit
-                )
-                SettingStepper(
-                    title: "预定时长",
-                    value: Format.minutes(store.settings.plannedMinutes),
-                    range: 30...360,
-                    step: 15,
-                    valueBinding: Bindable(store).settings.plannedMinutes
-                )
-                SettingStepper(
-                    title: "两杯初始建议间隔",
-                    value: "\(store.settings.minIntervalMinutes) 分钟",
-                    range: 10...90,
-                    step: 5,
-                    valueBinding: Bindable(store).settings.minIntervalMinutes
-                )
+
                 Toggle(isOn: Bindable(store).settings.estimateWhenSilent) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("未回应时自动按节奏估算")
+                        Text("未回应时自动按节奏推测")
                             .foregroundStyle(Theme.cream)
-                        Text("酒桌不方便拿手机时，保持杯量推测并在界面醒目标注")
+                        Text("酒桌不方便拿手机时，保持智能节拍并在界面清晰标明推测")
                             .font(.caption2)
                             .foregroundStyle(Theme.mute)
                     }
@@ -253,17 +353,48 @@ struct HomeView: View {
                         .foregroundStyle(Theme.cream)
                 }
                 .tint(Theme.gold)
+            }
+            .padding(18)
+            .background(CardChrome())
+        }
+    }
 
-                FillButton(title: "按此目标开始", color: Theme.gold) {
-                    store.settings.selectedPlanID = "custom"
-                    store.start(store.settings.customPlan)
+    private var soundPickerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("主动提醒铃声")
+                    .foregroundStyle(Theme.cream)
+                Spacer()
+                Text("点击可试听")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.mute)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(NotificationSoundOption.allCases) { opt in
+                        let isSelected = store.settings.notificationSound == opt
+                        Button {
+                            store.settings.notificationSound = opt
+                            store.previewSound(opt)
+                            store.normalizeAndSaveSettings()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: isSelected ? "speaker.wave.2.fill" : "play.circle")
+                                    .font(.caption)
+                                Text(opt.displayName)
+                                    .font(.caption2.weight(isSelected ? .semibold : .regular))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? Theme.gold.opacity(0.2) : Theme.raised))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? Theme.gold : Theme.faint, lineWidth: 1))
+                            .foregroundStyle(isSelected ? Theme.gold : Theme.cream)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
-        }
-        .padding(18)
-        .background(CardChrome())
-        .onChange(of: store.settings) { _, _ in
-            store.normalizeAndSaveSettings()
         }
     }
 
@@ -303,7 +434,7 @@ struct HomeView: View {
     }
 
     private var footnote: some View {
-        Text("标准杯基于世界卫生组织 14 克纯乙醇计算。本应用提供自律提醒，无法测算实际血液酒精浓度，酒后严禁驾车。")
+        Text("标准杯基于世界卫生组织约 14 克纯乙醇换算。本应用提供自律提醒，无法测算实际血液酒精浓度，酒后严禁驾车。")
             .font(.footnote)
             .foregroundStyle(Theme.mute.opacity(0.8))
             .fixedSize(horizontal: false, vertical: true)
@@ -382,6 +513,31 @@ struct SessionView: View {
                         .foregroundStyle(Theme.gold)
                     Text("·")
                         .foregroundStyle(Theme.mute)
+
+                    // 切换酒种菜单
+                    Menu {
+                        ForEach(BeverageCategory.allCases) { cat in
+                            Button {
+                                store.switchBeverageCategory(cat)
+                            } label: {
+                                Label(cat.name, systemImage: cat.icon)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(store.active?.beverageCategory.name ?? "啤酒")
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9))
+                        }
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Theme.gold.opacity(0.85))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Theme.raised))
+                    }
+
+                    Text("·")
+                        .foregroundStyle(Theme.mute)
                     Text(Format.shortTime(store.active?.startedAt ?? .now))
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(Theme.mute)
@@ -396,10 +552,10 @@ struct SessionView: View {
         }
     }
 
-    // 双环高端腕表表盘：外环时间，内环杯量
+    // 双环腕表表盘：外环时间，内环杯量
     private func watchDial(_ snap: PaceSnapshot, session: Session) -> some View {
-        let soft = Double(max(session.softLimit, 1))
-        let hard = Double(max(session.hardLimit, session.softLimit))
+        let soft = max(session.softLimit, 1.0)
+        let hard = max(session.hardLimit, session.softLimit)
         let cupProgress = min(1.0, snap.units / hard)
         let timeProgress = min(1.0, snap.elapsed / session.plannedSeconds)
         let isEstimatedOnly = snap.confirmedUnits == 0 && snap.estimatedUnits > 0
@@ -443,10 +599,10 @@ struct SessionView: View {
                 .frame(width: 6, height: 6)
                 .offset(x: 98 * cos(softAngle.radians), y: 98 * sin(softAngle.radians))
 
-            // 中心大字数据
+            // 中心大字数据：通俗现实物理量 + 标准杯双轨显示
             VStack(spacing: 2) {
                 if snap.estimatedUnits > 0 {
-                    Text(isEstimatedOnly ? "节 奏 估 算" : "含 估 算")
+                    Text(isEstimatedOnly ? "节 奏 推 测" : "含 推 测")
                         .font(.system(size: 11, weight: .medium))
                         .tracking(3)
                         .foregroundStyle(Theme.gold)
@@ -457,15 +613,18 @@ struct SessionView: View {
                         .foregroundStyle(Theme.mute)
                 }
 
-                Text(Format.units(snap.units))
-                    .font(.system(size: 86, weight: .light, design: .serif))
+                // 大字：现实物理量
+                Text(snap.physicalText)
+                    .font(.system(size: 42, weight: .light, design: .serif))
                     .foregroundStyle(Theme.cream)
                     .contentTransition(.numericText())
 
-                Text("/ \(session.softLimit) 标准杯")
-                    .font(.subheadline)
+                // 小字：对应酒品目标进度
+                let softPhysical = session.beverageCategory.formatPhysical(from: session.softLimit)
+                Text("\(snap.physicalText) / 建议 \(softPhysical)")
+                    .font(.caption2)
                     .foregroundStyle(Theme.mute)
-                    .padding(.top, -6)
+                    .padding(.top, 2)
             }
         }
         .frame(width: 260, height: 260)
@@ -484,7 +643,16 @@ struct SessionView: View {
                 .foregroundStyle(Theme.mute)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let next = snap.nextPrompt {
+            if snap.intensity == .over {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .font(.caption2)
+                    Text("持续强提醒中 · 每 10 分钟一次直到收杯")
+                        .font(.caption.bold())
+                }
+                .foregroundStyle(Theme.wine)
+                .padding(.top, 4)
+            } else if let next = snap.nextPrompt {
                 HStack(spacing: 6) {
                     Image(systemName: "bell.badge")
                         .font(.caption2)
@@ -555,7 +723,6 @@ struct SessionView: View {
         .padding(.top, 10)
     }
 
-    // 方案 A 标志性三元按钮组：水 · +1 · 收
     private var bottomActions: some View {
         VStack(spacing: 8) {
             if let toast = store.toast {
@@ -587,7 +754,7 @@ struct SessionView: View {
                         .foregroundStyle(Theme.mute)
                 }
 
-                // 核心 +1 (香槟金大圈)
+                // 核心 +1 (支持所选酒种快速记一份)
                 VStack(spacing: 6) {
                     Button {
                         showingDrinks = true
@@ -603,7 +770,7 @@ struct SessionView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    Text("记一杯 / 纠正")
+                    Text("记 1 \(store.active?.beverageCategory.unitName ?? "份")")
                         .font(.caption2)
                         .foregroundStyle(Theme.mute)
                 }
@@ -640,7 +807,7 @@ struct SessionView: View {
                 LogLine(
                     id: drink.id,
                     at: drink.at,
-                    text: "\(drink.name) · \(Format.units(drink.grams / Pace.gramsPerStandard)) 标准杯",
+                    text: "\(drink.name) · \(drink.detail)",
                     color: Theme.cream
                 )
             )
@@ -655,14 +822,16 @@ struct SessionView: View {
                 )
             )
         }
-        // 列出被自动估算纳入的提醒节点
+        // 列出被节奏推测纳入的节点，展示清晰的人话语义，绝不显示 0.44、0.82 这类碎数
         for prompt in session.prompts where prompt.reply == nil && prompt.at <= store.now {
+            let cat = session.beverageCategory
+            let text = prompt.semanticText ?? "◌ 节奏推测 · 约 \(cat.formatPhysical(from: prompt.projectedUnits))"
             items.append(
                 LogLine(
                     id: prompt.id,
                     at: prompt.at,
-                    text: "◌ 节奏估算节点 · 约 \(Format.units(prompt.estimate)) 标准杯",
-                    color: Theme.gold.opacity(0.8)
+                    text: text,
+                    color: prompt.level == .over ? Theme.wine : Theme.gold.opacity(0.85)
                 )
             )
         }
@@ -714,7 +883,7 @@ struct DrinkSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Text("记录这杯")
+                Text("记录这一份")
                     .font(.system(size: 28, weight: .light, design: .serif))
                     .foregroundStyle(Theme.cream)
                 Spacer()
@@ -752,7 +921,7 @@ struct DrinkSheet: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("同上一杯：\(lastDrink.name)")
+                            Text("同上一份：\(lastDrink.name)")
                                 .font(.headline)
                                 .foregroundStyle(Theme.cream)
                             Text("\(lastDrink.detail) · 约 \(Format.units(lastDrink.grams / Pace.gramsPerStandard)) 标准杯")
@@ -811,7 +980,7 @@ struct DrinkSheet: View {
 
     private var customDrinkForm: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextField("酒品名称（可选，如精酿IPA）", text: $customName)
+            TextField("酒品名称，如精酿IPA", text: $customName)
                 .textFieldStyle(.plain)
                 .padding(12)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Theme.raised))
@@ -832,7 +1001,7 @@ struct DrinkSheet: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("酒精度 (ABV)")
+                    Text("酒精度 ABV")
                         .foregroundStyle(Theme.mute)
                     Spacer()
                     Text(String(format: "%.1f %%", customAbv))
@@ -848,164 +1017,194 @@ struct DrinkSheet: View {
 
             HStack {
                 Text("折合约 \(Format.units(calcUnits)) 标准杯")
-                    .font(.headline)
+                    .font(.caption)
                     .foregroundStyle(Theme.gold)
                 Spacer()
-                Text("纯酒精约 \(Int(calcGrams))g")
-                    .font(.caption)
-                    .foregroundStyle(Theme.mute)
+                Button("添加这杯") {
+                    store.logCustom(name: customName, volumeMl: customVolume, abv: customAbv, at: targetLogTime)
+                    dismiss()
+                }
+                .font(.subheadline.bold())
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Theme.gold))
+                .foregroundStyle(Theme.bg)
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.raised))
-
-            FillButton(title: "确认记录", color: Theme.gold) {
-                store.logCustom(name: customName, volumeMl: customVolume, abv: customAbv, at: targetLogTime)
-                dismiss()
-            }
+            .padding(.top, 4)
         }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Theme.raised))
     }
 }
 
-// MARK: - Summary Sheet (数据复盘)
+// MARK: - Plan Selection Card
 
-struct SummarySheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let session: Session
-
-    var body: some View {
-        let end = session.endedAt ?? .now
-        let outcome = session.outcome(at: end)
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(outcome.title)
-                    .font(.system(size: 38, weight: .light, design: .serif))
-                    .foregroundStyle(outcome == .crossed ? Theme.wine : Theme.cream)
-                Text(outcome.detail)
-                    .font(.body)
-                    .foregroundStyle(Theme.mute)
-            }
-
-            VStack(spacing: 12) {
-                statRow(title: "饮酒时长", value: Format.clock(session.duration))
-                if session.overtimeMinutes > 0 {
-                    Divider().background(Theme.faint)
-                    statRow(title: "比预定多坐了", value: "\(session.overtimeMinutes) 分钟")
-                }
-                Divider().background(Theme.faint)
-                statRow(title: "总摄入量", value: "\(Format.units(session.units(at: end))) 标准杯")
-                Divider().background(Theme.faint)
-                statRow(title: "其中手动记录", value: "\(session.drinks.count) 次 · \(Format.units(session.confirmedUnits(at: end))) 标准杯")
-                Divider().background(Theme.faint)
-                statRow(title: "补水次数", value: "\(session.waters.count) 次")
-            }
-            .padding(18)
-            .background(CardChrome())
-
-            if session.waters.count >= session.drinks.count && !session.drinks.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundStyle(Theme.water)
-                    Text("整场水酒穿插及时，给身体留足了恢复缓冲。")
-                        .font(.footnote)
-                        .foregroundStyle(Theme.cream)
-                }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.water.opacity(0.12)))
-            }
-
-            Spacer()
-            FillButton(title: "完成复盘", color: Theme.gold) {
-                dismiss()
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func statRow(title: String, value: String) -> some View {
-        HStack {
-            Text(title)
-                .foregroundStyle(Theme.mute)
-            Spacer()
-            Text(value)
-                .font(.body.weight(.medium))
-                .foregroundStyle(Theme.cream)
-        }
-    }
-}
-
-// MARK: - Components
-
-struct PlanCard: View {
-    let plan: Plan
-    var isSelected: Bool = false
+struct PlanSelectionCard: View {
+    let title: String
+    let badge: String
+    let detail: String
+    let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack {
+            HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text(plan.name)
-                            .font(.system(.title2, design: .serif))
-                            .foregroundStyle(Theme.cream)
-                        if isSelected {
-                            Text("上次所用")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Theme.gold.opacity(0.2)))
-                                .foregroundStyle(Theme.gold)
-                        }
+                        Text(title)
+                            .font(.system(.title3, design: .serif).weight(.medium))
+                            .foregroundStyle(isSelected ? Theme.gold : Theme.cream)
+                        Text(badge)
+                            .font(.subheadline)
+                            .foregroundStyle(isSelected ? Theme.cream : Theme.mute)
                     }
-                    Text(plan.detail)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.mute)
-                    Text("警戒线 \(plan.hardLimit) · 初始建议间隔 \(plan.minIntervalMinutes) 分钟")
+                    Text(detail)
                         .font(.caption)
-                        .foregroundStyle(Theme.mute)
+                        .foregroundStyle(Theme.mute.opacity(0.85))
                 }
                 Spacer()
-                Image(systemName: "arrow.right")
-                    .foregroundStyle(Theme.gold)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(isSelected ? Theme.gold : Theme.mute.opacity(0.35))
             }
-            .padding(18)
-            .background(CardChrome())
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(isSelected ? Theme.raised : Theme.surface.opacity(0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(isSelected ? Theme.gold : Theme.faint, lineWidth: isSelected ? 1.5 : 1)
+            )
         }
         .buttonStyle(.plain)
     }
 }
 
+struct CardChrome: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 22)
+            .fill(Theme.raised)
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(Theme.faint, lineWidth: 1)
+            )
+    }
+}
+
 struct HistoryRow: View {
     let session: Session
-    var onDelete: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        let end = session.endedAt ?? session.startedAt
-        let outcome = session.outcome(at: end)
-        HStack(alignment: .center) {
+        let outcome = session.outcome(at: session.endedAt ?? Date())
+        let cat = session.beverageCategory
+
+        HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(Format.day(session.startedAt)) · \(Format.shortTime(session.startedAt))")
-                    .font(.subheadline)
+                HStack(spacing: 6) {
+                    Text(session.planName)
+                        .font(.headline)
+                        .foregroundStyle(Theme.cream)
+                    Text("·")
+                        .foregroundStyle(Theme.mute)
+                    Text(cat.name)
+                        .font(.caption)
+                        .foregroundStyle(Theme.gold)
+                    Text("·")
+                        .foregroundStyle(Theme.mute)
+                    Text(Format.day(session.startedAt))
+                        .font(.caption)
+                        .foregroundStyle(Theme.mute)
+                }
+                Text("\(cat.formatPhysical(from: session.units(at: session.endedAt ?? Date()))) · \(Format.units(session.units(at: session.endedAt ?? Date()))) 标准杯 · 时长 \(Format.minutes(Int(session.duration / 60)))")
+                    .font(.caption)
                     .foregroundStyle(Theme.mute)
-                Text("\(Format.clock(session.duration)) · \(Format.units(session.units(at: end))) 标准杯")
-                    .font(.body)
-                    .foregroundStyle(Theme.cream)
             }
             Spacer()
-            Text(outcome.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(outcome == .crossed ? Theme.wine : (outcome == .empty ? Theme.mute : Theme.sage))
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
-                    .font(.caption)
-                    .foregroundStyle(Theme.mute.opacity(0.6))
-                    .padding(8)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(outcome.title)
+                    .font(.caption.bold())
+                    .foregroundStyle(outcome == .crossed ? Theme.wine : Theme.sage)
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                        .foregroundStyle(Theme.mute.opacity(0.6))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(14)
-        .background(CardChrome())
+        .background(RoundedRectangle(cornerRadius: 14).fill(Theme.surface))
+    }
+}
+
+struct SummarySheet: View {
+    let session: Session
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let outcome = session.outcome(at: session.endedAt ?? Date())
+        let cat = session.beverageCategory
+        let units = session.units(at: session.endedAt ?? Date())
+
+        VStack(spacing: 20) {
+            Capsule()
+                .fill(Theme.mute.opacity(0.4))
+                .frame(width: 40, height: 4)
+                .padding(.top, 10)
+
+            VStack(spacing: 6) {
+                Text(outcome.title)
+                    .font(.system(size: 32, weight: .light, design: .serif))
+                    .foregroundStyle(Theme.cream)
+                Text(outcome.detail)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.mute)
+                    .padding(.horizontal, 24)
+            }
+
+            VStack(spacing: 12) {
+                HStack {
+                    Text("主要酒饮")
+                    Spacer()
+                    Text(cat.name)
+                        .foregroundStyle(Theme.gold)
+                }
+                HStack {
+                    Text("实际摄入总量")
+                    Spacer()
+                    Text("\(cat.formatPhysical(from: units)) · \(Format.units(units)) 标准杯")
+                        .foregroundStyle(Theme.cream)
+                }
+                HStack {
+                    Text("饮酒时长")
+                    Spacer()
+                    Text(Format.minutes(Int(session.duration / 60)))
+                        .foregroundStyle(Theme.cream)
+                }
+                HStack {
+                    Text("喝水记录")
+                    Spacer()
+                    Text("\(session.waters.count) 杯")
+                        .foregroundStyle(Theme.water)
+                }
+            }
+            .font(.subheadline)
+            .padding(18)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Theme.raised))
+            .padding(.horizontal, 24)
+
+            Spacer()
+
+            FillButton(title: "知道了", color: Theme.gold) {
+                dismiss()
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+        }
     }
 }
 
@@ -1014,42 +1213,35 @@ struct SettingStepper: View {
     let value: String
     let range: ClosedRange<Int>
     let step: Int
-    let valueBinding: Binding<Int>
+    @Binding var valueBinding: Int
 
     var body: some View {
-        Stepper(value: valueBinding, in: range, step: step) {
-            HStack {
-                Text(title)
-                    .foregroundStyle(Theme.mute)
-                Spacer()
-                Text(value)
-                    .foregroundStyle(Theme.cream)
-                    .monospacedDigit()
-            }
+        HStack {
+            Text(title)
+                .foregroundStyle(Theme.cream)
+            Spacer()
+            Text(value)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(Theme.gold)
+            Stepper("", value: $valueBinding, in: range, step: step)
+                .labelsHidden()
         }
-        .foregroundStyle(Theme.cream)
     }
 }
 
 struct FillButton: View {
-    var title: String
-    var systemImage: String?
-    var color: Color
-    var foreground: Color = Theme.ink
-    var action: () -> Void
+    let title: String
+    let color: Color
+    let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                }
-                Text(title)
-            }
-            .font(.system(size: 18, weight: .semibold))
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .foregroundStyle(foreground)
-            .background(color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            Text(title)
+                .font(.system(.headline, design: .serif))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(RoundedRectangle(cornerRadius: 16).fill(color))
+                .foregroundStyle(Theme.bg)
         }
         .buttonStyle(.plain)
     }
@@ -1057,31 +1249,15 @@ struct FillButton: View {
 
 struct CupMark: View {
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Theme.gold, lineWidth: 1.5)
-            Image(systemName: "wineglass")
-                .font(.system(size: 18, weight: .light))
-                .foregroundStyle(Theme.cream)
-        }
-        .frame(width: 44, height: 44)
+        Image(systemName: "wineglass")
+            .font(.system(size: 28, weight: .light))
+            .foregroundStyle(Theme.gold)
     }
 }
 
-struct CardChrome: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(Theme.raised)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Theme.faint, lineWidth: 1)
-            )
-    }
-}
-
-private struct LogLine: Identifiable {
-    var id: UUID
-    var at: Date
-    var text: String
-    var color: Color
+struct LogLine: Identifiable {
+    let id: UUID
+    let at: Date
+    let text: String
+    let color: Color
 }

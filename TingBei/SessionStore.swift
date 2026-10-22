@@ -1,6 +1,8 @@
 import Foundation
 import UIKit
 import ActivityKit
+import AudioToolbox
+import AVFoundation
 @preconcurrency import UserNotifications
 
 enum NotificationActionID {
@@ -88,10 +90,10 @@ final class SessionStore {
     var saveFailed = false
     var hapticEvent: HapticFeedbackEvent?
     var signatureStatus: SignatureStatus = .current()
-    private var currentActivity: Activity<TingBeiAttributes>? = nil
 
     private var clock: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
+    @ObservationIgnored private var audioPlayer: AVAudioPlayer?
 
     init() {
         let saved = Self.load()
@@ -146,17 +148,43 @@ final class SessionStore {
         applyIdleTimer()
     }
 
-    func start(_ plan: Plan) {
+    func previewSound(_ option: NotificationSoundOption) {
+        triggerHaptic(.soft)
+        guard let fileName = option.fileName else {
+            AudioServicesPlaySystemSound(1007) // 系统默认短促提示
+            return
+        }
+        let name = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+        guard let soundURL = Bundle.main.url(forResource: name, withExtension: ext) else {
+            AudioServicesPlaySystemSound(1007)
+            return
+        }
+        do {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+            audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
+            audioPlayer?.volume = 1.0
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
+        } catch {
+            AudioServicesPlaySystemSound(1007)
+        }
+    }
+
+    func start(_ plan: Plan, category: BeverageCategory? = nil) {
         var plan = plan
         if plan.hardLimit < plan.softLimit {
             plan.hardLimit = plan.softLimit
         }
+        let chosenCategory = category ?? settings.selectedBeverageCategory
         let initialNow = Date.now
         var session = Session(
             id: UUID(),
             startedAt: initialNow,
             endedAt: nil,
             planName: plan.name,
+            beverageCategory: chosenCategory,
             plannedMinutes: plan.plannedMinutes,
             softLimit: plan.softLimit,
             hardLimit: plan.hardLimit,
@@ -186,10 +214,38 @@ final class SessionStore {
         triggerHaptic(.tap)
     }
 
-    /// 用户在界面或通知上确认：喝了一杯。
-    /// 可以指定具体酒类，若未指定则默认按一个通用标准杯计入。
-    func logDrink(preset: DrinkPreset = Pace.genericDrink, at customDate: Date? = nil) {
+    /// 切换当前酒场的酒种
+    func switchBeverageCategory(_ cat: BeverageCategory) {
         guard var session = active else { return }
+        session.beverageCategory = cat
+        updatePrompts(&session, now: .now)
+        active = session
+        let snap = Pace.evaluate(session, now: .now)
+        persist()
+        reschedule()
+        updateLiveActivity(session: session, snap: snap)
+        showToast("已切换为主要饮用：\(cat.name)，按 \(cat.unitName) 计量")
+        triggerHaptic(.soft)
+    }
+
+    func defaultPresetForCurrentSession() -> DrinkPreset {
+        guard let session = active else { return Pace.genericDrink }
+        switch session.beverageCategory {
+        case .beer:
+            return Pace.presets.first(where: { $0.id == "beer330" }) ?? Pace.genericDrink
+        case .baijiu:
+            return Pace.presets.first(where: { $0.id == "baijiu" }) ?? Pace.genericDrink
+        case .wine:
+            return Pace.presets.first(where: { $0.id == "wine" }) ?? Pace.genericDrink
+        case .custom:
+            return Pace.genericDrink
+        }
+    }
+
+    /// 用户在界面或通知上确认：喝了一份。若未指定则自动按当前酒种默认规格记录。
+    func logDrink(preset: DrinkPreset? = nil, at customDate: Date? = nil) {
+        guard var session = active else { return }
+        let chosenPreset = preset ?? defaultPresetForCurrentSession()
         let logTime = customDate ?? .now
         let before = Pace.evaluate(session, now: .now)
 
@@ -197,15 +253,15 @@ final class SessionStore {
         session.drinks.append(
             DrinkLog(
                 id: newDrinkID,
-                presetID: preset.id,
-                name: preset.name,
-                detail: preset.detail,
-                grams: preset.grams,
+                presetID: chosenPreset.id,
+                name: chosenPreset.name,
+                detail: chosenPreset.detail,
+                grams: chosenPreset.grams,
                 at: logTime
             )
         )
 
-        // 对应标记刚才可能已经触发的提醒（若有）为已确认，避免重复计入估算
+        // 对应标记刚才可能已经触发的提醒为已确认
         for i in 0..<session.prompts.count {
             if session.prompts[i].reply == nil && session.prompts[i].at <= logTime.addingTimeInterval(5 * 60) {
                 session.prompts[i].reply = .logged
@@ -247,14 +303,15 @@ final class SessionStore {
 
         session.prompts[idx].reply = reply
         if reply == .drank {
+            let defaultPreset = defaultPresetForCurrentSession()
             let drinkID = UUID()
             session.drinks.append(
                 DrinkLog(
                     id: drinkID,
-                    presetID: Pace.genericDrink.id,
-                    name: Pace.genericDrink.name,
-                    detail: Pace.genericDrink.detail,
-                    grams: Pace.genericDrink.grams,
+                    presetID: defaultPreset.id,
+                    name: defaultPreset.name,
+                    detail: defaultPreset.detail,
+                    grams: defaultPreset.grams,
                     at: session.prompts[idx].at
                 )
             )
@@ -276,7 +333,7 @@ final class SessionStore {
         session.waters.append(WaterLog(id: UUID(), at: .now))
         active = session
         persist()
-        showToast("💧 及时补水，给身体留足代谢缓冲")
+        showToast("💧 喝了一杯水，给身体留足代谢缓冲")
         updateLiveActivity(session: session, snap: Pace.evaluate(session, now: .now))
         triggerHaptic(.soft)
     }
@@ -320,7 +377,7 @@ final class SessionStore {
         let end = Date()
         session.endedAt = end
 
-        // 结束时若完全空场（0 杯且未喝水）并且时间短于 5 分钟，直接静默丢弃
+        // 结束时若完全空场且短于 5 分钟，直接静默丢弃
         if session.drinks.isEmpty && session.duration < 5 * 60 {
             active = nil
             clock?.cancel()
@@ -383,6 +440,13 @@ final class SessionStore {
         let cueChanged = snap.cue != previousCue
         let enteredCriticalCue = cueChanged && (snap.cue == .hurried || snap.cue == .due || snap.cue == .over)
 
+        // 越线后若未来的排期通知剩余不多，自动滚动补充未来排期
+        let upcomingCount = session.prompts.filter { $0.at > now }.count
+        if snap.intensity == .over && upcomingCount < 15 {
+            updatePrompts(&session, now: now)
+            reschedule()
+        }
+
         if rankEscalated || enteredCriticalCue {
             session.lastAnnouncedRank = snap.intensity.rawValue
             session.lastAnnouncedCue = snap.cue
@@ -406,7 +470,6 @@ final class SessionStore {
     }
 
     private func updatePrompts(_ session: inout Session, now: Date) {
-        // 保留过去已经发生的 prompts 及其记录，未来未发生的按新节奏重新推演
         let past = session.prompts.filter { $0.at <= now }
         let future = Pace.projectPrompts(session, now: now)
         session.prompts = past + future
@@ -417,8 +480,8 @@ final class SessionStore {
         center.removeAllPendingNotificationRequests()
         guard let session = active, session.endedAt == nil else { return }
 
-        // 取未来未来的 prompts 排期推送
-        let upcoming = session.prompts.filter { $0.at > .now }.sorted(by: { $0.at < $1.at })
+        let currentNow = Date.now
+        let upcoming = session.prompts.filter { $0.at > currentNow.addingTimeInterval(1) }.sorted(by: { $0.at < $1.at })
         var overCounter = 0
 
         for prompt in upcoming.prefix(Pace.promptBudget) {
@@ -433,32 +496,51 @@ final class SessionStore {
             content.threadIdentifier = "tingbei.session"
             content.userInfo = ["promptID": prompt.id.uuidString]
 
-            // 高级明显提醒策略：突破静音/专注模式 + 专属强声音
-            if prompt.level >= .due {
-                content.interruptionLevel = .timeSensitive
-                content.sound = .defaultCritical
-            } else if prompt.level >= .steady {
-                content.interruptionLevel = .timeSensitive
-                content.sound = .default
+            // 突破静音/专注模式的强提醒级别
+            content.interruptionLevel = .timeSensitive
+
+            // 配置声音
+            if let soundFile = settings.notificationSound.fileName {
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
             } else {
-                content.interruptionLevel = .active
                 content.sound = .default
             }
 
-            let parts = Calendar.current.dateComponents(
-                [.year, .month, .day, .hour, .minute, .second],
-                from: prompt.at
-            )
-            let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
+            let interval = max(1.0, prompt.at.timeIntervalSince(currentNow))
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
             let request = UNNotificationRequest(identifier: "tingbei." + prompt.id.uuidString, content: content, trigger: trigger)
             center.add(request)
+        }
+    }
+
+    /// 发送一条 5 秒后的测试通知，方便在锁屏下验证通知能否正常弹窗并响铃
+    func scheduleTestNotification() {
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let content = UNMutableNotificationContent()
+            content.title = "停杯 · 声音与通知测试"
+            content.body = "恭喜！当前通知与【\(settings.notificationSound.displayName)】提示音已正常送达。"
+            content.categoryIdentifier = NotificationActionID.category
+            content.interruptionLevel = .timeSensitive
+
+            if let soundFile = settings.notificationSound.fileName {
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
+            } else {
+                content.sound = .default
+            }
+
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5.0, repeats: false)
+            let request = UNNotificationRequest(identifier: "tingbei.test." + UUID().uuidString, content: content, trigger: trigger)
+            try? await center.add(request)
+            showToast("已排期测试通知！请立即锁屏，5秒后观察弹窗与声音。")
+            triggerHaptic(.tap)
         }
     }
 
     func registerNotificationCategories() {
         let drankAction = UNNotificationAction(
             identifier: NotificationActionID.drank,
-            title: "喝了一杯",
+            title: "喝了一份",
             options: []
         )
         let skippedAction = UNNotificationAction(
@@ -556,6 +638,8 @@ final class SessionStore {
         Task {
             await clearAllActivities()
             let attributes = TingBeiAttributes(startedAt: session.startedAt, planName: session.planName)
+            let overCount = snap.intensity == .over ? session.prompts.filter { $0.level == .over && $0.at <= now }.count : nil
+            let softPhysical = session.beverageCategory.formatPhysical(from: session.softLimit)
             let state = TingBeiAttributes.ContentState(
                 units: snap.units,
                 softLimit: session.softLimit,
@@ -565,7 +649,10 @@ final class SessionStore {
                 message: snap.message,
                 nextPromptAt: snap.nextPrompt?.at,
                 elapsedSeconds: snap.elapsed,
-                isOver: snap.cue == .over || snap.cue == .due
+                isOver: snap.cue == .over || snap.cue == .due,
+                physicalText: snap.physicalText,
+                physicalSoftLimitText: softPhysical,
+                overCount: overCount
             )
 
             _ = try? Activity.request(
@@ -578,6 +665,8 @@ final class SessionStore {
 
     private func updateLiveActivity(session: Session, snap: PaceSnapshot) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let overCount = snap.intensity == .over ? session.prompts.filter { $0.level == .over && $0.at <= now }.count : nil
+        let softPhysical = session.beverageCategory.formatPhysical(from: session.softLimit)
         let state = TingBeiAttributes.ContentState(
             units: snap.units,
             softLimit: session.softLimit,
@@ -587,7 +676,10 @@ final class SessionStore {
             message: snap.message,
             nextPromptAt: snap.nextPrompt?.at,
             elapsedSeconds: snap.elapsed,
-            isOver: snap.cue == .over || snap.cue == .due
+            isOver: snap.cue == .over || snap.cue == .due,
+            physicalText: snap.physicalText,
+            physicalSoftLimitText: softPhysical,
+            overCount: overCount
         )
 
         Task {
@@ -698,6 +790,7 @@ final class SessionStore {
             startedAt: start,
             endedAt: nil,
             planName: plan.name,
+            beverageCategory: .beer,
             plannedMinutes: plan.plannedMinutes,
             softLimit: plan.softLimit,
             hardLimit: plan.hardLimit,

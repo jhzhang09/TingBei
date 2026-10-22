@@ -32,12 +32,12 @@ struct TingBeiLiveActivityWidget: Widget {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        HStack(alignment: .firstTextBaseline, spacing: 2) {
-                            Text(FormatWidget.units(context.state.units))
-                                .font(.system(size: 26, weight: .bold, design: .serif))
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text(context.state.physicalText ?? "\(FormatWidget.units(context.state.units))杯")
+                                .font(.system(size: 20, weight: .bold, design: .serif))
                                 .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : .white)
-                            Text("/ \(context.state.softLimit)杯")
-                                .font(.caption2)
+                            Text(context.state.physicalSoftLimitText != nil ? "/ \(context.state.physicalSoftLimitText!)" : "/ \(FormatWidget.units(context.state.softLimit))杯")
+                                .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -50,16 +50,24 @@ struct TingBeiLiveActivityWidget: Widget {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : Color(red: 0.79, green: 0.66, blue: 0.43))
 
-                        if let next = context.state.nextPromptAt {
+                        if context.state.isOver {
+                            HStack(spacing: 3) {
+                                Image(systemName: "exclamationmark.octagon.fill")
+                                    .font(.system(size: 9))
+                                Text("每10分钟提醒")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(Color(red: 0.90, green: 0.30, blue: 0.25))
+                        } else if let next = context.state.nextPromptAt {
                             HStack(spacing: 3) {
                                 Image(systemName: "bell.badge")
                                     .font(.system(size: 9))
-                                Text(next, style: .time)
+                                Text(next, style: .timer)
                                     .font(.system(size: 11, design: .monospaced))
                             }
                             .foregroundStyle(.secondary)
                         } else {
-                            Text(Date(timeIntervalSinceNow: -context.state.elapsedSeconds), style: .timer)
+                            Text("节拍守护中")
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
@@ -87,7 +95,7 @@ struct TingBeiLiveActivityWidget: Widget {
                             }
 
                             Link(destination: URL(string: "tingbei://logDrink")!) {
-                                Label("+1杯", systemImage: "plus")
+                                Label("+1份", systemImage: "plus")
                                     .font(.system(size: 12, weight: .medium))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
@@ -98,7 +106,7 @@ struct TingBeiLiveActivityWidget: Widget {
                             Spacer()
 
                             Link(destination: URL(string: "tingbei://end")!) {
-                                Text("我停了")
+                                Text("我收杯了")
                                     .font(.system(size: 12, weight: .semibold))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
@@ -110,33 +118,30 @@ struct TingBeiLiveActivityWidget: Widget {
                     .padding(.top, 4)
                 }
             } compactLeading: {
-                // 紧凑左侧：酒杯与当前杯数
                 HStack(spacing: 3) {
                     Image(systemName: "wineglass.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : Color(red: 0.79, green: 0.66, blue: 0.43))
-                    Text(FormatWidget.units(context.state.units))
-                        .font(.system(size: 12, weight: .bold, design: .serif))
+                    Text(context.state.physicalText ?? FormatWidget.units(context.state.units))
+                        .font(.system(size: 11, weight: .bold, design: .serif))
                         .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : .white)
                 }
                 .padding(.leading, 2)
             } compactTrailing: {
-                // 紧凑右侧：状态或倒计时
                 if context.state.isOver {
                     Text("该停了")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Color(red: 0.90, green: 0.30, blue: 0.25))
                 } else if let next = context.state.nextPromptAt {
-                    Text(next, style: .time)
+                    Text(next, style: .timer)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color(red: 0.79, green: 0.66, blue: 0.43))
                 } else {
-                    Text("\(context.state.softLimit)杯线")
+                    Text(context.state.physicalSoftLimitText != nil ? "\(context.state.physicalSoftLimitText!)线" : "\(FormatWidget.units(context.state.softLimit))杯线")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
             } minimal: {
-                // 最小化态（多个 Live Activity 竞争时）
                 Image(systemName: "wineglass.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : Color(red: 0.79, green: 0.66, blue: 0.43))
@@ -152,12 +157,12 @@ struct LockScreenLiveActivityView: View {
     let attributes: TingBeiAttributes
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+        HStack(alignment: .center, spacing: 14) {
             // 左侧：杯量与金色指示圆环
             ZStack {
                 Circle()
                     .stroke(Color.white.opacity(0.12), lineWidth: 4)
-                let progress = min(1.0, state.units / Double(max(1, state.hardLimit)))
+                let progress = min(1.0, state.units / max(1.0, state.hardLimit))
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
@@ -167,11 +172,11 @@ struct LockScreenLiveActivityView: View {
                     .rotationEffect(.degrees(-90))
 
                 VStack(spacing: 0) {
-                    Text(FormatWidget.units(state.units))
-                        .font(.system(size: 24, weight: .light, design: .serif))
+                    Text(state.physicalText ?? FormatWidget.units(state.units))
+                        .font(.system(size: state.physicalText != nil ? 14 : 22, weight: .light, design: .serif))
                         .foregroundStyle(.white)
-                    Text("/\(state.softLimit)")
-                        .font(.system(size: 10))
+                    Text(state.physicalSoftLimitText != nil ? "/\(state.physicalSoftLimitText!)" : "/\(FormatWidget.units(state.softLimit))杯")
+                        .font(.system(size: 9))
                         .foregroundStyle(.white.opacity(0.5))
                 }
             }
@@ -185,9 +190,9 @@ struct LockScreenLiveActivityView: View {
                         .foregroundStyle(state.isOver ? Color(red: 0.90, green: 0.35, blue: 0.30) : Color(red: 0.79, green: 0.66, blue: 0.43))
                     Text("·")
                         .foregroundStyle(.white.opacity(0.3))
-                    Text(attributes.planName)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.5))
+                    Text(state.physicalText ?? attributes.planName)
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white.opacity(0.75))
                 }
 
                 Text(state.message)
@@ -195,14 +200,37 @@ struct LockScreenLiveActivityView: View {
                     .foregroundStyle(.white.opacity(0.8))
                     .lineLimit(1)
 
-                if let next = state.nextPromptAt {
+                // 核心修复：越线后绝不显示过期的静态时间，显示实时的超限警示
+                if state.isOver {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.octagon.fill")
+                            .font(.system(size: 10))
+                        if let count = state.overCount, count > 0 {
+                            Text("已超上限 · 第 \(count) 次提醒")
+                                .font(.caption2.bold())
+                        } else {
+                            Text("已超上限 · 持续提醒中")
+                                .font(.caption2.bold())
+                        }
+                    }
+                    .foregroundStyle(Color(red: 0.90, green: 0.35, blue: 0.30))
+                } else if let next = state.nextPromptAt {
                     HStack(spacing: 4) {
                         Image(systemName: "bell.badge")
                             .font(.system(size: 9))
-                        Text("下次主动提醒 \(next, style: .time)")
+                        Text("下次提醒")
+                        Text(next, style: .timer)
                             .font(.caption2.monospacedDigit())
                     }
                     .foregroundStyle(Color(red: 0.79, green: 0.66, blue: 0.43).opacity(0.9))
+                } else {
+                    HStack(spacing: 4) {
+                        Image(systemName: "shield.fill")
+                            .font(.system(size: 9))
+                        Text("节拍守护中")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.white.opacity(0.5))
                 }
             }
 
