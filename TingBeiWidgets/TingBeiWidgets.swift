@@ -158,18 +158,34 @@ struct LockScreenLiveActivityView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            // 左侧：杯量与金色指示圆环
+            // 左侧：杯量与金色指示圆环（实线确认 + 虚线推测）
             ZStack {
                 Circle()
                     .stroke(Color.white.opacity(0.12), lineWidth: 4)
-                let progress = min(1.0, state.units / max(1.0, state.hardLimit))
-                Circle()
-                    .trim(from: 0, to: progress)
-                    .stroke(
-                        state.isOver ? Color(red: 0.76, green: 0.28, blue: 0.22) : Color(red: 0.79, green: 0.66, blue: 0.43),
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
+                let hard = max(1.0, state.hardLimit)
+                let totalProgress = min(1.0, state.units / hard)
+                let confirmedProgress = min(1.0, (state.confirmedUnits ?? state.units) / hard)
+                let ringColor = state.isOver ? Color(red: 0.76, green: 0.28, blue: 0.22) : Color(red: 0.79, green: 0.66, blue: 0.43)
+
+                if totalProgress > confirmedProgress {
+                    Circle()
+                        .trim(from: confirmedProgress, to: totalProgress)
+                        .stroke(
+                            ringColor.opacity(0.65),
+                            style: StrokeStyle(lineWidth: 4, lineCap: .butt, dash: [3, 3])
+                        )
+                        .rotationEffect(.degrees(-90))
+                }
+
+                if confirmedProgress > 0 {
+                    Circle()
+                        .trim(from: 0, to: confirmedProgress)
+                        .stroke(
+                            ringColor,
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                }
 
                 VStack(spacing: 0) {
                     Text(state.physicalText ?? FormatWidget.units(state.units))

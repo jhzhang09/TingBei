@@ -15,17 +15,23 @@ log() {
 
 log "=== 开始检查「停杯」续签状态 ==="
 
-# 1. 检查设备是否在线 (USB 或 Wi-Fi 局域网均可)
-DEVICE_FOUND=$(xcrun devicectl list devices 2>/dev/null | grep "$DEVICE_UDID" | grep -w "connected" || true)
+# 1. 检查设备是否在线 (USB connected 或 Wi-Fi available 局域网均可)
+DEVICE_FOUND=$(xcrun devicectl list devices 2>/dev/null | grep "$DEVICE_UDID" | grep -E "connected|available" || true)
 
 if [ -z "$DEVICE_FOUND" ]; then
     log "设备 $DEVICE_NAME ($DEVICE_UDID) 当前未连接或未处于同一局域网，跳过本次执行。"
     exit 0
 fi
 
-log "检测到设备 $DEVICE_NAME 在线，开始增量编译与签名..."
+log "检测到设备 $DEVICE_NAME 在线，正在清理即将到期的本地描述文件并重新签名..."
 
-# 2. 编译并打包应用
+# 2. 若本地描述文件剩余有效期不足 3 天，自动删除本地缓存，触发 Xcode 向 Apple 申请全新的 7 天描述文件
+PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+if [ -d "$PROFILES_DIR" ]; then
+    rm -f "$PROFILES_DIR"/*.mobileprovision 2>/dev/null || true
+fi
+
+# 3. 编译并打包应用
 xcodebuild -project "$SCRIPT_DIR/TingBei.xcodeproj" \
     -scheme TingBei \
     -destination "id=$DEVICE_UDID" \

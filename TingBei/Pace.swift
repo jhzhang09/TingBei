@@ -874,4 +874,82 @@ enum Format {
         }
         return "\(hours) 小时 \(rest) 分后"
     }
+
+    /// 根据当前时间段返回自然的场次称谓（如“午间”、“午后”、“今晚”、“本场”）
+    static func sessionPeriodPrompt(at date: Date = .now) -> (question: String, actionPrefix: String) {
+        let hour = Calendar.current.component(.hour, from: date)
+        switch hour {
+        case 11..<14:
+            return ("中午主要喝什么", "开启午间")
+        case 14..<17:
+            return ("下午主要喝什么", "开启午后")
+        case 17...23, 0..<5:
+            return ("今晚主要喝什么", "开启今晚")
+        default:
+            return ("本场主要喝什么", "开启本场")
+        }
+    }
 }
+
+#if PACE_CHECKS && os(macOS)
+enum PaceChecks {
+    static func run() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var session = Session(
+            id: UUID(),
+            startedAt: start,
+            endedAt: nil,
+            planName: "小酌",
+            beverageCategory: .baijiu,
+            plannedMinutes: 120,
+            softLimit: 4.5,
+            hardLimit: 6.0,
+            minIntervalMinutes: 30,
+            estimateWhenSilent: true,
+            drinks: [],
+            waters: [],
+            prompts: [],
+            lastAnnouncedRank: 0
+        )
+
+        // 1. 初始状态检验
+        session.prompts = Pace.projectPrompts(session, now: start)
+        assert(session.prompts.count == Pace.promptBudget, "预排数量应等于预算")
+        let snap0 = Pace.evaluate(session, now: start)
+        assert(snap0.intensity == .quiet, "开局应为 quiet")
+        assert(snap0.cue == .calm, "开局应为 calm")
+        assert(abs(session.prompts[0].at.timeIntervalSince(start) - 30 * 60) < 1, "首条提醒应为 30 分钟后")
+
+        // 2. 静默 35 分钟后触发 pendingPrompt 与估算增长
+        let t35 = start.addingTimeInterval(35 * 60)
+        let snap35 = Pace.evaluate(session, now: t35)
+        assert(snap35.estimatedUnits > 0, "静默应产生估算杯数")
+        assert(snap35.pendingPrompt != nil, "应存在待回应的提醒")
+
+        // 3. 急饮检测
+        let preset = Pace.presets.first { $0.id == "baijiu" }!
+        session.drinks.append(DrinkLog(id: UUID(), presetID: preset.id, name: preset.name, detail: preset.detail, grams: preset.grams, at: start.addingTimeInterval(5 * 60)))
+        session.drinks.append(DrinkLog(id: UUID(), presetID: preset.id, name: preset.name, detail: preset.detail, grams: preset.grams, at: start.addingTimeInterval(15 * 60)))
+        let snapFast = Pace.evaluate(session, now: start.addingTimeInterval(16 * 60))
+        assert(snapFast.isTooFast, "10分钟内连喝两盅白酒应触发急饮提示")
+        assert(snapFast.cue == .hurried, "Cue 应为 hurried")
+
+        // 4. 越线状态检测
+        for i in 0..<4 {
+            session.drinks.append(DrinkLog(id: UUID(), presetID: preset.id, name: preset.name, detail: preset.detail, grams: preset.grams, at: start.addingTimeInterval(Double(30 + i * 20) * 60)))
+        }
+        let snapOver = Pace.evaluate(session, now: start.addingTimeInterval(110 * 60))
+        assert(snapOver.intensity == .over, "超出硬限应为 over")
+        assert(snapOver.cue == .over, "Cue 应为 over")
+        assert(Pace.gap(for: snapOver.intensity, session: session) == 10 * 60, "越线后提醒间隔应为 10 分钟")
+
+        print("✅ PaceChecks: All state machine & projection assertions passed.")
+    }
+
+    static let _autoRun: Void = {
+        run()
+    }()
+}
+
+let _ = PaceChecks._autoRun
+#endif

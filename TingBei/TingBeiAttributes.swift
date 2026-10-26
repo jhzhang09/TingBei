@@ -4,6 +4,8 @@ import ActivityKit
 public struct TingBeiAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var units: Double
+        public var confirmedUnits: Double?
+        public var estimatedUnits: Double?
         public var softLimit: Double
         public var hardLimit: Double
         public var cue: String
@@ -18,6 +20,8 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
 
         public init(
             units: Double,
+            confirmedUnits: Double? = nil,
+            estimatedUnits: Double? = nil,
             softLimit: Double,
             hardLimit: Double,
             cue: String,
@@ -31,6 +35,8 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
             overCount: Int? = nil
         ) {
             self.units = units
+            self.confirmedUnits = confirmedUnits
+            self.estimatedUnits = estimatedUnits
             self.softLimit = softLimit
             self.hardLimit = hardLimit
             self.cue = cue

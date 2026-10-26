@@ -28,7 +28,7 @@ struct TingBeiApp: App {
         case "logDrink":
             store.logDrink()
         case "end":
-            store.end()
+            store.handleDeepLinkEnd()
         default:
             break
         }
@@ -50,7 +50,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .list]
+        await MainActor.run {
+            store?.tick()
+        }
+        return [.banner, .sound, .list]
     }
 
     nonisolated func userNotificationCenter(

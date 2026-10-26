@@ -28,6 +28,7 @@ enum HapticFeedbackEvent: Equatable {
 
 struct SignatureStatus: Equatable {
     var daysRemaining: Int?
+    var hoursRemaining: Int?
     var expirationDate: Date?
     var isSimulator: Bool
 
@@ -41,7 +42,8 @@ struct SignatureStatus: Equatable {
         if days < 0 {
             return "签名已过期"
         } else if days == 0 {
-            return "签名将于今日到期"
+            let hrs = max(1, hoursRemaining ?? 1)
+            return "签名将于 \(hrs) 小时后到期"
         } else {
             return "签名剩余 \(days) 天 · 自动续签保护中"
         }
@@ -49,29 +51,33 @@ struct SignatureStatus: Equatable {
 
     static func current() -> SignatureStatus {
         #if targetEnvironment(simulator)
-        return SignatureStatus(daysRemaining: nil, expirationDate: nil, isSimulator: true)
+        return SignatureStatus(daysRemaining: nil, hoursRemaining: nil, expirationDate: nil, isSimulator: true)
         #else
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
               let data = try? Data(contentsOf: url),
               let rawString = String(data: data, encoding: .ascii) ?? String(data: data, encoding: .isoLatin1) else {
-            return SignatureStatus(daysRemaining: nil, expirationDate: nil, isSimulator: false)
+            return SignatureStatus(daysRemaining: nil, hoursRemaining: nil, expirationDate: nil, isSimulator: false)
         }
 
         guard let xmlStart = rawString.range(of: "<?xml"),
               let xmlEnd = rawString.range(of: "</plist>", range: xmlStart.lowerBound..<rawString.endIndex) else {
-            return SignatureStatus(daysRemaining: nil, expirationDate: nil, isSimulator: false)
+            return SignatureStatus(daysRemaining: nil, hoursRemaining: nil, expirationDate: nil, isSimulator: false)
         }
 
         let xmlSubstring = rawString[xmlStart.lowerBound..<xmlEnd.upperBound]
         guard let xmlData = xmlSubstring.data(using: .utf8),
               let plist = (try? PropertyListSerialization.propertyList(from: xmlData, options: [], format: nil)) as? [String: Any],
               let expirationDate = plist["ExpirationDate"] as? Date else {
-            return SignatureStatus(daysRemaining: nil, expirationDate: nil, isSimulator: false)
+            return SignatureStatus(daysRemaining: nil, hoursRemaining: nil, expirationDate: nil, isSimulator: false)
         }
 
-        let calendar = Calendar.current
-        let days = calendar.dateComponents([.day], from: .now, to: expirationDate).day ?? 0
-        return SignatureStatus(daysRemaining: max(0, days), expirationDate: expirationDate, isSimulator: false)
+        let remainingSeconds = expirationDate.timeIntervalSince(.now)
+        if remainingSeconds <= 0 {
+            return SignatureStatus(daysRemaining: -1, hoursRemaining: 0, expirationDate: expirationDate, isSimulator: false)
+        }
+        let totalHours = Int(ceil(remainingSeconds / 3600.0))
+        let days = Int(ceil(remainingSeconds / 86400.0))
+        return SignatureStatus(daysRemaining: days, hoursRemaining: totalHours, expirationDate: expirationDate, isSimulator: false)
         #endif
     }
 }
@@ -90,10 +96,12 @@ final class SessionStore {
     var saveFailed = false
     var hapticEvent: HapticFeedbackEvent?
     var signatureStatus: SignatureStatus = .current()
+    var confirmingEndFromDeepLink = false
 
     private var clock: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var audioPlayer: AVAudioPlayer?
+    @ObservationIgnored private var lastLiveActivityState: TingBeiAttributes.ContentState?
 
     init() {
         let saved = Self.load()
@@ -261,12 +269,12 @@ final class SessionStore {
             )
         )
 
-        // 对应标记刚才可能已经触发的提醒为已确认
-        for i in 0..<session.prompts.count {
-            if session.prompts[i].reply == nil && session.prompts[i].at <= logTime.addingTimeInterval(5 * 60) {
-                session.prompts[i].reply = .logged
-                session.prompts[i].drinkID = newDrinkID
-            }
+        // 仅将最接近当前记录时间的一条未回复提醒标记为已确认（避免一次性吞掉多条历史推测提醒）
+        if let matchIdx = session.prompts.indices
+            .filter({ session.prompts[$0].reply == nil && session.prompts[$0].at <= logTime.addingTimeInterval(5 * 60) })
+            .max(by: { session.prompts[$0].at < session.prompts[$1].at }) {
+            session.prompts[matchIdx].reply = .logged
+            session.prompts[matchIdx].drinkID = newDrinkID
         }
 
         // 刷新未来的提醒时间表
@@ -280,7 +288,8 @@ final class SessionStore {
         bannerPulse += 1
         persist()
         reschedule()
-        updateLiveActivity(session: session, snap: after)
+        updateLiveActivity(session: session, snap: after, force: true)
+        showToast("已记录：\(chosenPreset.name)（\(chosenPreset.detail)）")
 
         if after.cue == .over {
             triggerHaptic(.stop)
@@ -296,7 +305,7 @@ final class SessionStore {
         logDrink(preset: preset, at: customDate)
     }
 
-    /// 用户回应某次主动提醒："这段时间没喝"
+    /// 用户回应某次主动提醒："喝了一份" 或 "这段时间没喝"
     func handlePromptReply(promptID: UUID, reply: PromptReply) {
         guard var session = active else { return }
         guard let idx = session.prompts.firstIndex(where: { $0.id == promptID }) else { return }
@@ -316,6 +325,9 @@ final class SessionStore {
                 )
             )
             session.prompts[idx].drinkID = drinkID
+            showToast("已确认：\(defaultPreset.name)")
+        } else if reply == .skipped {
+            showToast("已消除本轮推测，节拍已校准")
         }
 
         updatePrompts(&session, now: .now)
@@ -324,7 +336,7 @@ final class SessionStore {
         bannerPulse += 1
         persist()
         reschedule()
-        updateLiveActivity(session: session, snap: Pace.evaluate(session, now: .now))
+        updateLiveActivity(session: session, snap: Pace.evaluate(session, now: .now), force: true)
         triggerHaptic(.soft)
     }
 
@@ -334,7 +346,7 @@ final class SessionStore {
         active = session
         persist()
         showToast("💧 喝了一杯水，给身体留足代谢缓冲")
-        updateLiveActivity(session: session, snap: Pace.evaluate(session, now: .now))
+        updateLiveActivity(session: session, snap: Pace.evaluate(session, now: .now), force: true)
         triggerHaptic(.soft)
     }
 
@@ -345,8 +357,10 @@ final class SessionStore {
         switch (drink?.at, water?.at) {
         case let (drinkAt?, waterAt?) where waterAt > drinkAt:
             session.waters.removeAll { $0.id == water?.id }
+            showToast("已撤销上一条喝水记录")
         case (nil, _?):
             session.waters.removeAll { $0.id == water?.id }
+            showToast("已撤销上一条喝水记录")
         case (_?, _):
             if let drinkID = drink?.id {
                 session.drinks.removeAll { $0.id == drinkID }
@@ -354,6 +368,7 @@ final class SessionStore {
                     session.prompts[i].reply = nil
                     session.prompts[i].drinkID = nil
                 }
+                showToast("已撤销上一份饮酒记录")
             }
         default:
             return
@@ -368,17 +383,28 @@ final class SessionStore {
         bannerPulse += 1
         persist()
         reschedule()
-        updateLiveActivity(session: session, snap: after)
+        updateLiveActivity(session: session, snap: after, force: true)
         triggerHaptic(.soft)
+    }
+
+    func handleDeepLinkEnd() {
+        guard let snap = snapshot else { return }
+        if snap.intensity >= .due {
+            end()
+        } else {
+            confirmingEndFromDeepLink = true
+            triggerHaptic(.warning)
+        }
     }
 
     func end() {
         guard var session = active else { return }
         let end = Date()
         session.endedAt = end
+        confirmingEndFromDeepLink = false
 
-        // 结束时若完全空场且短于 5 分钟，直接静默丢弃
-        if session.drinks.isEmpty && session.duration < 5 * 60 {
+        // 结束时若完全没有确认饮酒且短于 5 分钟，直接静默丢弃
+        if session.drinks.isEmpty && session.waters.isEmpty && session.duration < 5 * 60 {
             active = nil
             clock?.cancel()
             toast = nil
@@ -464,6 +490,9 @@ final class SessionStore {
             session.lastAnnouncedCue = snap.cue
             active = session
             persist()
+            if previousCue == .hurried && snap.cue == .settle {
+                triggerHaptic(.soft)
+            }
         }
 
         updateLiveActivity(session: session, snap: snap)
@@ -477,39 +506,45 @@ final class SessionStore {
 
     func reschedule() {
         let center = UNUserNotificationCenter.current()
-        center.removeAllPendingNotificationRequests()
-        guard let session = active, session.endedAt == nil else { return }
-
-        let currentNow = Date.now
-        let upcoming = session.prompts.filter { $0.at > currentNow.addingTimeInterval(1) }.sorted(by: { $0.at < $1.at })
-        var overCounter = 0
-
-        for prompt in upcoming.prefix(Pace.promptBudget) {
-            let content = UNMutableNotificationContent()
-            if prompt.level == .over {
-                overCounter += 1
+        Task {
+            let pending = await center.pendingNotificationRequests()
+            let sessionIDs = pending.map(\.identifier).filter { !$0.hasPrefix("tingbei.test.") }
+            if !sessionIDs.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: sessionIDs)
             }
-            let copy = Pace.notificationCopy(for: prompt, session: session, ordinal: max(1, overCounter))
-            content.title = copy.title
-            content.body = copy.body
-            content.categoryIdentifier = NotificationActionID.category
-            content.threadIdentifier = "tingbei.session"
-            content.userInfo = ["promptID": prompt.id.uuidString]
+            guard let session = active, session.endedAt == nil else { return }
 
-            // 突破静音/专注模式的强提醒级别
-            content.interruptionLevel = .timeSensitive
+            let currentNow = Date.now
+            let upcoming = session.prompts.filter { $0.at > currentNow.addingTimeInterval(1) }.sorted(by: { $0.at < $1.at })
+            var overCounter = 0
 
-            // 配置声音
-            if let soundFile = settings.notificationSound.fileName {
-                content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
-            } else {
-                content.sound = .default
+            for prompt in upcoming.prefix(Pace.promptBudget) {
+                let content = UNMutableNotificationContent()
+                if prompt.level == .over {
+                    overCounter += 1
+                }
+                let copy = Pace.notificationCopy(for: prompt, session: session, ordinal: max(1, overCounter))
+                content.title = copy.title
+                content.body = copy.body
+                content.categoryIdentifier = NotificationActionID.category
+                content.threadIdentifier = "tingbei.session"
+                content.userInfo = ["promptID": prompt.id.uuidString]
+
+                // 突破静音/专注模式的强提醒级别
+                content.interruptionLevel = .timeSensitive
+
+                // 配置声音
+                if let soundFile = settings.notificationSound.fileName {
+                    content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
+                } else {
+                    content.sound = .default
+                }
+
+                let interval = max(1.0, prompt.at.timeIntervalSince(currentNow))
+                let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+                let request = UNNotificationRequest(identifier: "tingbei." + prompt.id.uuidString, content: content, trigger: trigger)
+                try? await center.add(request)
             }
-
-            let interval = max(1.0, prompt.at.timeIntervalSince(currentNow))
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
-            let request = UNNotificationRequest(identifier: "tingbei." + prompt.id.uuidString, content: content, trigger: trigger)
-            center.add(request)
         }
     }
 
@@ -517,6 +552,20 @@ final class SessionStore {
     func scheduleTestNotification() {
         Task {
             let center = UNUserNotificationCenter.current()
+            let authSettings = await center.notificationSettings()
+            if authSettings.authorizationStatus == .notDetermined {
+                let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+                notificationPermission = granted ? .allowed : .denied
+                if !granted {
+                    showToast("请先开启通知权限，才能接收测试提醒")
+                    return
+                }
+            } else if authSettings.authorizationStatus == .denied {
+                notificationPermission = .denied
+                showToast("通知权限已关闭，请前往系统设置开启")
+                return
+            }
+
             let content = UNMutableNotificationContent()
             content.title = "停杯 · 声音与通知测试"
             content.body = "恭喜！当前通知与【\(settings.notificationSound.displayName)】提示音已正常送达。"
@@ -532,7 +581,7 @@ final class SessionStore {
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5.0, repeats: false)
             let request = UNNotificationRequest(identifier: "tingbei.test." + UUID().uuidString, content: content, trigger: trigger)
             try? await center.add(request)
-            showToast("已排期测试通知！请立即锁屏，5秒后观察弹窗与声音。")
+            showToast("已排期测试通知！请立即锁屏，5 秒后听音看弹窗")
             triggerHaptic(.tap)
         }
     }
@@ -632,60 +681,60 @@ final class SessionStore {
 
     // MARK: - Live Activity & 灵动岛管理
 
-    private func startLiveActivity(session: Session, snap: PaceSnapshot) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-
-        Task {
-            await clearAllActivities()
-            let attributes = TingBeiAttributes(startedAt: session.startedAt, planName: session.planName)
-            let overCount = snap.intensity == .over ? session.prompts.filter { $0.level == .over && $0.at <= now }.count : nil
-            let softPhysical = session.beverageCategory.formatPhysical(from: session.softLimit)
-            let state = TingBeiAttributes.ContentState(
-                units: snap.units,
-                softLimit: session.softLimit,
-                hardLimit: session.hardLimit,
-                cue: snap.cue.rawValue,
-                title: snap.title,
-                message: snap.message,
-                nextPromptAt: snap.nextPrompt?.at,
-                elapsedSeconds: snap.elapsed,
-                isOver: snap.cue == .over || snap.cue == .due,
-                physicalText: snap.physicalText,
-                physicalSoftLimitText: softPhysical,
-                overCount: overCount
-            )
-
-            _ = try? Activity.request(
-                attributes: attributes,
-                content: .init(state: state, staleDate: nil),
-                pushType: nil
-            )
-        }
-    }
-
-    private func updateLiveActivity(session: Session, snap: PaceSnapshot) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+    private func makeLiveActivityState(session: Session, snap: PaceSnapshot) -> TingBeiAttributes.ContentState {
         let overCount = snap.intensity == .over ? session.prompts.filter { $0.level == .over && $0.at <= now }.count : nil
         let softPhysical = session.beverageCategory.formatPhysical(from: session.softLimit)
-        let state = TingBeiAttributes.ContentState(
-            units: snap.units,
+        // 按分钟粒度对齐 elapsedSeconds，避免每秒无意义触发 ActivityKit 跨进程 IPC 刷新
+        let roundedElapsed = Double(Int(snap.elapsed) / 60 * 60)
+        return TingBeiAttributes.ContentState(
+            units: (snap.units * 100).rounded() / 100,
+            confirmedUnits: (snap.confirmedUnits * 100).rounded() / 100,
+            estimatedUnits: (snap.estimatedUnits * 100).rounded() / 100,
             softLimit: session.softLimit,
             hardLimit: session.hardLimit,
             cue: snap.cue.rawValue,
             title: snap.title,
             message: snap.message,
             nextPromptAt: snap.nextPrompt?.at,
-            elapsedSeconds: snap.elapsed,
+            elapsedSeconds: roundedElapsed,
             isOver: snap.cue == .over || snap.cue == .due,
             physicalText: snap.physicalText,
             physicalSoftLimitText: softPhysical,
             overCount: overCount
         )
+    }
+
+    private func startLiveActivity(session: Session, snap: PaceSnapshot) {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        let state = makeLiveActivityState(session: session, snap: snap)
+        lastLiveActivityState = state
+        let staleDate = snap.nextPrompt?.at
+
+        Task {
+            await clearAllActivities()
+            let attributes = TingBeiAttributes(startedAt: session.startedAt, planName: session.planName)
+            _ = try? Activity.request(
+                attributes: attributes,
+                content: .init(state: state, staleDate: staleDate),
+                pushType: nil
+            )
+        }
+    }
+
+    private func updateLiveActivity(session: Session, snap: PaceSnapshot, force: Bool = false) {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let state = makeLiveActivityState(session: session, snap: snap)
+        if !force, state == lastLiveActivityState, !Activity<TingBeiAttributes>.activities.isEmpty {
+            return
+        }
+        lastLiveActivityState = state
+        let staleDate = snap.nextPrompt?.at
 
         Task {
             let activities = Activity<TingBeiAttributes>.activities
             if !activities.isEmpty {
-                let content = ActivityContent(state: state, staleDate: nil)
+                let content = ActivityContent(state: state, staleDate: staleDate)
                 for act in activities {
                     await act.update(content)
                 }
@@ -696,6 +745,7 @@ final class SessionStore {
     }
 
     private func endLiveActivity() {
+        lastLiveActivityState = nil
         Task {
             await clearAllActivities()
         }
@@ -721,7 +771,7 @@ final class SessionStore {
         clock?.cancel()
         clock = Task { @MainActor in
             while !Task.isCancelled, active != nil {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(5))
                 if Task.isCancelled { return }
                 tick()
             }
