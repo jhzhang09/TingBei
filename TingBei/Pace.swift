@@ -12,11 +12,11 @@ enum Pace {
     static let promptBudget = 60
 
     static let presets: [DrinkPreset] = [
-        DrinkPreset(id: "beer330", name: "啤酒", detail: "330 ml", grams: 12),
         DrinkPreset(id: "beer500", name: "啤酒", detail: "500 ml", grams: 18),
+        DrinkPreset(id: "beer330", name: "啤酒", detail: "330 ml", grams: 12),
+        DrinkPreset(id: "baijiu", name: "白酒", detail: "一两 · 50 ml", grams: 21),
         DrinkPreset(id: "wine", name: "红酒", detail: "150 ml", grams: 15),
         DrinkPreset(id: "huangjiu", name: "黄酒", detail: "100 ml", grams: 12),
-        DrinkPreset(id: "baijiu", name: "白酒", detail: "一两 · 50 ml", grams: 21),
         DrinkPreset(id: "cocktail", name: "鸡尾酒", detail: "一杯", grams: 18),
     ]
 
@@ -118,9 +118,27 @@ enum Pace {
             waitMinutes: fast.waitMinutes
         )
 
+        // 诗意微醺状态铭牌（用于表盘顶部艺术字）
+        let poeticPhase: String
+        switch cue {
+        case .calm:
+            poeticPhase = "初 酌 · 从 容"
+        case .settle:
+            poeticPhase = "微 醺 · 适 意"
+        case .hurried:
+            poeticPhase = "湍 急 · 宜 缓"
+        case .near:
+            poeticPhase = "尽 兴 · 临 线"
+        case .due:
+            poeticPhase = "盈 满 · 当 止"
+        case .over:
+            poeticPhase = "越 界 · 停 杯"
+        }
+
         return PaceSnapshot(
             cue: cue,
             intensity: level,
+            poeticPhase: poeticPhase,
             title: copy.title,
             message: copy.message,
             units: units,
@@ -287,7 +305,12 @@ enum Pace {
         let last = ordered[ordered.count - 1]
         let previous = ordered[ordered.count - 2]
         let weight = min(2, max(0.5, previous.grams / gramsPerStandard))
-        let need = session.minIntervalSeconds * weight
+        var need = session.minIntervalSeconds * weight
+        // 真实代谢缓冲闭环：在上一杯之后每喝一杯水，折抵 5 分钟急饮冷却等待
+        let recentWaters = session.waters.filter { $0.at >= previous.at && $0.at <= now }.count
+        if recentWaters > 0 {
+            need = max(5 * 60, need - Double(recentWaters) * 5 * 60)
+        }
         let gap = last.at.timeIntervalSince(previous.at)
         let since = now.timeIntervalSince(last.at)
         guard gap < need, since < need else { return (false, 0) }
@@ -360,18 +383,27 @@ public enum BeverageCategory: String, Codable, CaseIterable, Identifiable, Senda
         case .beer: "mug.fill"
         case .baijiu: "flame.fill"
         case .wine: "wineglass.fill"
-        case .custom: "drop.triangle.fill"
+        case .custom: "sparkles"
+        }
+    }
+
+    public var specSubtitle: String {
+        switch self {
+        case .beer: "500ml / 听 · 约 1.3 标准杯"
+        case .baijiu: "50ml / 两 · 约 1.5 标准杯"
+        case .wine: "150ml / 杯 · 约 1.1 标准杯"
+        case .custom: "14g 纯乙醇 / 标准杯"
         }
     }
 
     /// 1个物理单位折合的标准杯数 (WHO标准：1标准杯 = 14克乙醇)
-    /// 啤酒：1听 (330ml 4.5% ≈ 12g乙醇) ≈ 0.857 标准杯
+    /// 啤酒：1大听 (500ml 4.5% ≈ 18g乙醇) ≈ 1.286 标准杯
     /// 白酒：1两 (50ml 52度 ≈ 21g乙醇) = 1.50 标准杯 (小酌3两=4.5杯，聚餐6两=9杯)
     /// 红酒：1杯 (150ml 12.5% ≈ 15g乙醇) ≈ 1.071 标准杯 (小酌4杯≈4.3杯，聚餐8杯≈8.6杯)
     /// 通用：1标准杯 = 1.0
     public var standardUnitsPerUnit: Double {
         switch self {
-        case .beer: 0.857
+        case .beer: 18.0 / 14.0
         case .baijiu: 1.50
         case .wine: 1.071
         case .custom: 1.0
@@ -494,6 +526,7 @@ struct Prompt: Codable, Identifiable, Equatable {
 struct PaceSnapshot: Equatable {
     var cue: Cue
     var intensity: Intensity
+    var poeticPhase: String
     var title: String
     var message: String
     var units: Double
@@ -696,7 +729,7 @@ struct Plan: Equatable, Identifiable, Sendable {
             case .baijiu:
                 return "3 两 · \(Format.minutes(plannedMinutes))"
             case .beer:
-                return "5 听 · \(Format.minutes(plannedMinutes))"
+                return "4 听 · \(Format.minutes(plannedMinutes))"
             case .wine:
                 return "4 杯 · \(Format.minutes(plannedMinutes))"
             case .custom:
@@ -707,7 +740,7 @@ struct Plan: Equatable, Identifiable, Sendable {
             case .baijiu:
                 return "6 两 · \(Format.minutes(plannedMinutes))"
             case .beer:
-                return "10 听 · \(Format.minutes(plannedMinutes))"
+                return "7 听 · \(Format.minutes(plannedMinutes))"
             case .wine:
                 return "8 杯 · \(Format.minutes(plannedMinutes))"
             case .custom:

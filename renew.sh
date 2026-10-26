@@ -23,18 +23,18 @@ if [ -z "$DEVICE_FOUND" ]; then
     exit 0
 fi
 
-log "检测到设备 $DEVICE_NAME 在线，正在清理即将到期的本地描述文件并重新签名..."
+log "检测到设备 $DEVICE_NAME 在线，开始增量编译与签名..."
 
-# 2. 若本地描述文件剩余有效期不足 3 天，自动删除本地缓存，触发 Xcode 向 Apple 申请全新的 7 天描述文件
+# 2. 若本地描述文件剩余有效期不足 2 天，清理旧缓存以触发向 Apple 申请新 7 天描述文件
 PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 if [ -d "$PROFILES_DIR" ]; then
-    rm -f "$PROFILES_DIR"/*.mobileprovision 2>/dev/null || true
+    find "$PROFILES_DIR" -name "*.mobileprovision" -mtime +4 -delete 2>/dev/null || true
 fi
 
-# 3. 编译并打包应用
+# 2. 编译并打包应用（使用 generic/platform=iOS 避免无线连接休眠时 xcodebuild 找不到 destination）
 xcodebuild -project "$SCRIPT_DIR/TingBei.xcodeproj" \
     -scheme TingBei \
-    -destination "id=$DEVICE_UDID" \
+    -destination "generic/platform=iOS" \
     -allowProvisioningUpdates \
     build \
     -quiet

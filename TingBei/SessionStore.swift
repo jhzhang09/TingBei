@@ -240,7 +240,7 @@ final class SessionStore {
         guard let session = active else { return Pace.genericDrink }
         switch session.beverageCategory {
         case .beer:
-            return Pace.presets.first(where: { $0.id == "beer330" }) ?? Pace.genericDrink
+            return Pace.presets.first(where: { $0.id == "beer500" }) ?? Pace.genericDrink
         case .baijiu:
             return Pace.presets.first(where: { $0.id == "baijiu" }) ?? Pace.genericDrink
         case .wine:
@@ -342,11 +342,19 @@ final class SessionStore {
 
     func logWater() {
         guard var session = active else { return }
+        let before = Pace.evaluate(session, now: .now)
         session.waters.append(WaterLog(id: UUID(), at: .now))
         active = session
+        let after = Pace.evaluate(session, now: .now)
         persist()
-        showToast("💧 喝了一杯水，给身体留足代谢缓冲")
-        updateLiveActivity(session: session, snap: Pace.evaluate(session, now: .now), force: true)
+        if before.isTooFast && !after.isTooFast {
+            showToast("💧 已喝水缓冲，急饮警示已解除")
+        } else if before.isTooFast {
+            showToast("💧 已折抵 5 分钟急饮冷却，请继续慢饮")
+        } else {
+            showToast("💧 喝了一杯水，水酒平衡 \(after.waterCount):\(max(1, after.drinkCount))")
+        }
+        updateLiveActivity(session: session, snap: after, force: true)
         triggerHaptic(.soft)
     }
 
