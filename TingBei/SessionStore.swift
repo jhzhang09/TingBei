@@ -108,6 +108,7 @@ final class SessionStore {
         settings = saved.settings
         active = saved.active
         history = saved.history
+        Theme.apply(saved.settings.selectedTheme)
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--sample") {
             installSample()
@@ -152,8 +153,21 @@ final class SessionStore {
         if next != settings {
             settings = next
         }
+        Theme.apply(settings.selectedTheme)
         persist()
         applyIdleTimer()
+    }
+
+    func selectTheme(_ theme: AppTheme) {
+        guard settings.selectedTheme != theme else { return }
+        settings.selectedTheme = theme
+        Theme.apply(theme)
+        normalizeAndSaveSettings()
+        if let session = active {
+            updateLiveActivity(session: session, snap: Pace.evaluate(session, now: now), force: true)
+        }
+        showToast("已切换主题：\(theme.name) · \(theme.subtitle)")
+        triggerHaptic(.soft)
     }
 
     func previewSound(_ option: NotificationSoundOption) {
@@ -708,7 +722,8 @@ final class SessionStore {
             isOver: snap.cue == .over || snap.cue == .due,
             physicalText: snap.physicalText,
             physicalSoftLimitText: softPhysical,
-            overCount: overCount
+            overCount: overCount,
+            themeID: settings.selectedTheme.rawValue
         )
     }
 

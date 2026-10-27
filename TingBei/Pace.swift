@@ -475,6 +475,107 @@ public enum NotificationSoundOption: String, Codable, CaseIterable, Identifiable
     }
 }
 
+public enum HorologyDialStyle: String, Codable, Sendable {
+    case geneva       // 日内瓦条形精密刻度
+    case oriental     // 东方十二辰玉珠星点
+    case breguet      // 古典宝玑铁轨圈与十字线
+    case chronograph  // 现代双层测速仪夜光锚点
+
+    public var displayName: String {
+        switch self {
+        case .geneva: "日内瓦条形时标"
+        case .oriental: "东方十二辰星点"
+        case .breguet: "古典宝玑铁轨盘"
+        case .chronograph: "深潜夜光测速盘"
+        }
+    }
+}
+
+public enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
+    case obsidianGold = "obsidianGold"         // 曜石黑金（默认深色）
+    case celadonJade = "celadonJade"           // 汝窑天青（宋韵青玉深色）
+    case burgundyCellar = "burgundyCellar"     // 微醺酒庄（勃艮第玫瑰金深色）
+    case midnightSapphire = "midnightSapphire" // 深海蓝盘（皇家午夜蓝深色）
+    case enamelIvory = "enamelIvory"           // 大明火珐琅（日内瓦暖白浅色）
+    case xuanPaperInk = "xuanPaperInk"         // 宣纸水墨（兰亭松烟浅色）
+
+    public var id: String { rawValue }
+
+    public var name: String {
+        switch self {
+        case .obsidianGold: "曜石黑金"
+        case .celadonJade: "汝窑天青"
+        case .burgundyCellar: "微醺酒庄"
+        case .midnightSapphire: "深海蓝盘"
+        case .enamelIvory: "大明火珐琅"
+        case .xuanPaperInk: "宣纸水墨"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .obsidianGold: "朗格夜宴 · 德系黑金"
+        case .celadonJade: "宋韵流觞 · 雨过天青"
+        case .burgundyCellar: "勃艮第夜 · 玫瑰铜金"
+        case .midnightSapphire: "皇家午夜 · 冰川铂金"
+        case .enamelIvory: "日内瓦白盘 · 琥珀古铜"
+        case .xuanPaperInk: "兰亭雅集 · 宣纸松烟"
+        }
+    }
+
+    public var poeticDescription: String {
+        switch self {
+        case .obsidianGold:
+            "深邃曜石黑底配朗格香槟金与波尔多红宝石，适合夜间威士忌酒廊与商务晚宴。"
+        case .celadonJade:
+            "取意宋代汝窑天青釉与竹林夜雨，温润青玉光泽配朱砂印泥，清雅克制。"
+        case .burgundyCellar:
+            "古老地下橡木桶酒窖、陈年黑皮诺与 18K 玫瑰金怀表，浓郁浪漫的烛光氛围。"
+        case .midnightSapphire:
+            "瑞士深海潜水腕表午夜蓝太阳纹表盘，配冰川铂金与夜光冰蓝，冷静理性。"
+        case .enamelIvory:
+            "大明火暖象牙白珐琅盘配烤漆墨字与琥珀铜金，通透明亮，极适合午宴与日间茶叙。"
+        case .xuanPaperInk:
+            "手工生宣米白底、松烟浓墨与苍松黛青，如展开一卷曲水流觞的东方文人手卷。"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .obsidianGold: "wineglass"
+        case .celadonJade: "leaf.fill"
+        case .burgundyCellar: "sparkles"
+        case .midnightSapphire: "safari.fill"
+        case .enamelIvory: "sun.max.fill"
+        case .xuanPaperInk: "seal.fill"
+        }
+    }
+
+    public var isLight: Bool {
+        switch self {
+        case .enamelIvory, .xuanPaperInk:
+            return true
+        case .obsidianGold, .celadonJade, .burgundyCellar, .midnightSapphire:
+            return false
+        }
+    }
+
+    public var modeTag: String {
+        isLight ? "浅色日间" : "深色夜间"
+    }
+
+    public var dialStyle: HorologyDialStyle {
+        switch self {
+        case .obsidianGold: .geneva
+        case .celadonJade: .oriental
+        case .burgundyCellar: .breguet
+        case .midnightSapphire: .chronograph
+        case .enamelIvory: .breguet
+        case .xuanPaperInk: .oriental
+        }
+    }
+}
+
 // MARK: - 模型
 
 enum Intensity: Int, Codable, Comparable, CaseIterable {
@@ -783,6 +884,7 @@ struct Settings: Codable, Equatable {
     var selectedPlanID: String = Plan.light.id
     var selectedBeverageCategory: BeverageCategory = .baijiu
     var notificationSound: NotificationSoundOption = .glass
+    var selectedTheme: AppTheme = .obsidianGold
 
     mutating func normalize() {
         plannedMinutes = min(360, max(30, plannedMinutes))
@@ -840,6 +942,7 @@ extension Settings {
         selectedPlanID = try c.decodeIfPresent(String.self, forKey: .selectedPlanID) ?? base.selectedPlanID
         selectedBeverageCategory = try c.decodeIfPresent(BeverageCategory.self, forKey: .selectedBeverageCategory) ?? base.selectedBeverageCategory
         notificationSound = try c.decodeIfPresent(NotificationSoundOption.self, forKey: .notificationSound) ?? base.notificationSound
+        selectedTheme = try c.decodeIfPresent(AppTheme.self, forKey: .selectedTheme) ?? base.selectedTheme
     }
 }
 

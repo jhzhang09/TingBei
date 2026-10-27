@@ -17,6 +17,7 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
         public var physicalText: String?
         public var physicalSoftLimitText: String?
         public var overCount: Int?
+        public var themeID: String?
 
         public init(
             units: Double,
@@ -32,7 +33,8 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
             isOver: Bool,
             physicalText: String? = nil,
             physicalSoftLimitText: String? = nil,
-            overCount: Int? = nil
+            overCount: Int? = nil,
+            themeID: String? = nil
         ) {
             self.units = units
             self.confirmedUnits = confirmedUnits
@@ -48,6 +50,7 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
             self.physicalText = physicalText
             self.physicalSoftLimitText = physicalSoftLimitText
             self.overCount = overCount
+            self.themeID = themeID
         }
     }
 

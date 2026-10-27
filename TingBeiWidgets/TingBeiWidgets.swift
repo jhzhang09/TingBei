@@ -9,22 +9,85 @@ struct TingBeiWidgetBundle: WidgetBundle {
     }
 }
 
+struct WidgetThemeColors {
+    let bg: Color
+    let accent: Color
+    let danger: Color
+    let textPrimary: Color
+    let textMuted: Color
+
+    static func resolve(for themeID: String?) -> WidgetThemeColors {
+        switch themeID {
+        case "celadonJade":
+            return WidgetThemeColors(
+                bg: Color(red: 0.04, green: 0.08, blue: 0.08),
+                accent: Color(red: 0.50, green: 0.78, blue: 0.73),
+                danger: Color(red: 0.88, green: 0.36, blue: 0.31),
+                textPrimary: Color(red: 0.91, green: 0.95, blue: 0.94),
+                textMuted: Color.white.opacity(0.6)
+            )
+        case "burgundyCellar":
+            return WidgetThemeColors(
+                bg: Color(red: 0.08, green: 0.03, blue: 0.05),
+                accent: Color(red: 0.90, green: 0.64, blue: 0.52),
+                danger: Color(red: 0.93, green: 0.30, blue: 0.38),
+                textPrimary: Color(red: 0.97, green: 0.92, blue: 0.92),
+                textMuted: Color.white.opacity(0.6)
+            )
+        case "midnightSapphire":
+            return WidgetThemeColors(
+                bg: Color(red: 0.03, green: 0.06, blue: 0.11),
+                accent: Color(red: 0.48, green: 0.74, blue: 0.94),
+                danger: Color(red: 0.91, green: 0.35, blue: 0.31),
+                textPrimary: Color(red: 0.93, green: 0.95, blue: 0.98),
+                textMuted: Color.white.opacity(0.6)
+            )
+        case "enamelIvory":
+            return WidgetThemeColors(
+                bg: Color(red: 0.96, green: 0.94, blue: 0.90),
+                accent: Color(red: 0.62, green: 0.41, blue: 0.17),
+                danger: Color(red: 0.76, green: 0.20, blue: 0.17),
+                textPrimary: Color(red: 0.14, green: 0.11, blue: 0.09),
+                textMuted: Color(red: 0.14, green: 0.11, blue: 0.09).opacity(0.6)
+            )
+        case "xuanPaperInk":
+            return WidgetThemeColors(
+                bg: Color(red: 0.93, green: 0.92, blue: 0.90),
+                accent: Color(red: 0.25, green: 0.43, blue: 0.38),
+                danger: Color(red: 0.75, green: 0.21, blue: 0.18),
+                textPrimary: Color(red: 0.12, green: 0.13, blue: 0.12),
+                textMuted: Color(red: 0.12, green: 0.13, blue: 0.12).opacity(0.6)
+            )
+        default:
+            return WidgetThemeColors(
+                bg: Color(red: 0.05, green: 0.04, blue: 0.03),
+                accent: Color(red: 0.79, green: 0.66, blue: 0.43),
+                danger: Color(red: 0.86, green: 0.30, blue: 0.25),
+                textPrimary: .white,
+                textMuted: Color.white.opacity(0.6)
+            )
+        }
+    }
+}
+
 struct TingBeiLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: TingBeiAttributes.self) { context in
+            let wt = WidgetThemeColors.resolve(for: context.state.themeID)
             // 锁屏实时卡片 (Lock Screen Banner)
-            LockScreenLiveActivityView(state: context.state, attributes: context.attributes)
-                .activityBackgroundTint(Color(red: 0.05, green: 0.04, blue: 0.03))
-                .activitySystemActionForegroundColor(Color(red: 0.79, green: 0.66, blue: 0.43))
+            LockScreenLiveActivityView(state: context.state, attributes: context.attributes, wt: wt)
+                .activityBackgroundTint(wt.bg)
+                .activitySystemActionForegroundColor(wt.accent)
         } dynamicIsland: { context in
-            DynamicIsland {
+            let wt = WidgetThemeColors.resolve(for: context.state.themeID)
+            return DynamicIsland {
                 // 长按展开态 (Expanded View)
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 4) {
                             Text("停杯")
                                 .font(.system(size: 11, weight: .semibold, design: .serif))
-                                .foregroundStyle(Color(red: 0.79, green: 0.66, blue: 0.43))
+                                .foregroundStyle(wt.accent)
                             Text("·")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -35,7 +98,7 @@ struct TingBeiLiveActivityWidget: Widget {
                         HStack(alignment: .firstTextBaseline, spacing: 3) {
                             Text(context.state.physicalText ?? "\(FormatWidget.units(context.state.units))杯")
                                 .font(.system(size: 20, weight: .bold, design: .serif))
-                                .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : .white)
+                                .foregroundStyle(context.state.isOver ? wt.danger : .white)
                             Text(context.state.physicalSoftLimitText != nil ? "/ \(context.state.physicalSoftLimitText!)" : "/ \(FormatWidget.units(context.state.softLimit))杯")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
@@ -48,7 +111,7 @@ struct TingBeiLiveActivityWidget: Widget {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(context.state.title)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : Color(red: 0.79, green: 0.66, blue: 0.43))
+                            .foregroundStyle(context.state.isOver ? wt.danger : wt.accent)
 
                         if context.state.isOver {
                             HStack(spacing: 3) {
@@ -57,7 +120,7 @@ struct TingBeiLiveActivityWidget: Widget {
                                 Text("每10分钟提醒")
                                     .font(.system(size: 11, weight: .medium))
                             }
-                            .foregroundStyle(Color(red: 0.90, green: 0.30, blue: 0.25))
+                            .foregroundStyle(wt.danger)
                         } else if let next = context.state.nextPromptAt {
                             HStack(spacing: 3) {
                                 Image(systemName: "bell.badge")
@@ -99,8 +162,8 @@ struct TingBeiLiveActivityWidget: Widget {
                                     .font(.system(size: 12, weight: .medium))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
-                                    .background(Capsule().fill(Color(red: 0.79, green: 0.66, blue: 0.43).opacity(0.25)))
-                                    .foregroundStyle(Color(red: 0.79, green: 0.66, blue: 0.43))
+                                    .background(Capsule().fill(wt.accent.opacity(0.25)))
+                                    .foregroundStyle(wt.accent)
                             }
 
                             Spacer()
@@ -110,7 +173,7 @@ struct TingBeiLiveActivityWidget: Widget {
                                     .font(.system(size: 12, weight: .semibold))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
-                                    .background(Capsule().fill(context.state.isOver ? Color(red: 0.76, green: 0.28, blue: 0.22) : Color.white.opacity(0.15)))
+                                    .background(Capsule().fill(context.state.isOver ? wt.danger : Color.white.opacity(0.15)))
                                     .foregroundStyle(.white)
                             }
                         }
@@ -121,21 +184,21 @@ struct TingBeiLiveActivityWidget: Widget {
                 HStack(spacing: 3) {
                     Image(systemName: "wineglass.fill")
                         .font(.system(size: 11))
-                        .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : Color(red: 0.79, green: 0.66, blue: 0.43))
+                        .foregroundStyle(context.state.isOver ? wt.danger : wt.accent)
                     Text(context.state.physicalText ?? FormatWidget.units(context.state.units))
                         .font(.system(size: 11, weight: .bold, design: .serif))
-                        .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : .white)
+                        .foregroundStyle(context.state.isOver ? wt.danger : .white)
                 }
                 .padding(.leading, 2)
             } compactTrailing: {
                 if context.state.isOver {
                     Text("该停了")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color(red: 0.90, green: 0.30, blue: 0.25))
+                        .foregroundStyle(wt.danger)
                 } else if let next = context.state.nextPromptAt {
                     Text(next, style: .timer)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color(red: 0.79, green: 0.66, blue: 0.43))
+                        .foregroundStyle(wt.accent)
                 } else {
                     Text(context.state.physicalSoftLimitText != nil ? "\(context.state.physicalSoftLimitText!)线" : "\(FormatWidget.units(context.state.softLimit))杯线")
                         .font(.system(size: 11))
@@ -144,28 +207,29 @@ struct TingBeiLiveActivityWidget: Widget {
             } minimal: {
                 Image(systemName: "wineglass.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(context.state.isOver ? Color(red: 0.90, green: 0.30, blue: 0.25) : Color(red: 0.79, green: 0.66, blue: 0.43))
+                    .foregroundStyle(context.state.isOver ? wt.danger : wt.accent)
             }
         }
     }
 }
 
-// MARK: - 锁屏实时卡片 (黑金沉浸表盘)
+// MARK: - 锁屏实时卡片 (随主题联动表盘)
 
 struct LockScreenLiveActivityView: View {
     let state: TingBeiAttributes.ContentState
     let attributes: TingBeiAttributes
+    let wt: WidgetThemeColors
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            // 左侧：杯量与金色指示圆环（实线确认 + 虚线推测）
+            // 左侧：杯量与主题指示圆环（实线确认 + 虚线推测）
             ZStack {
                 Circle()
-                    .stroke(Color.white.opacity(0.12), lineWidth: 4)
+                    .stroke(wt.textPrimary.opacity(0.14), lineWidth: 4)
                 let hard = max(1.0, state.hardLimit)
                 let totalProgress = min(1.0, state.units / hard)
                 let confirmedProgress = min(1.0, (state.confirmedUnits ?? state.units) / hard)
-                let ringColor = state.isOver ? Color(red: 0.76, green: 0.28, blue: 0.22) : Color(red: 0.79, green: 0.66, blue: 0.43)
+                let ringColor = state.isOver ? wt.danger : wt.accent
 
                 if totalProgress > confirmedProgress {
                     Circle()
@@ -190,10 +254,10 @@ struct LockScreenLiveActivityView: View {
                 VStack(spacing: 0) {
                     Text(state.physicalText ?? FormatWidget.units(state.units))
                         .font(.system(size: state.physicalText != nil ? 14 : 22, weight: .light, design: .serif))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(wt.textPrimary)
                     Text(state.physicalSoftLimitText != nil ? "/\(state.physicalSoftLimitText!)" : "/\(FormatWidget.units(state.softLimit))杯")
                         .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(wt.textMuted)
                 }
             }
             .frame(width: 58, height: 58)
@@ -203,17 +267,17 @@ struct LockScreenLiveActivityView: View {
                 HStack(spacing: 6) {
                     Text(state.title)
                         .font(.system(size: 16, weight: .semibold, design: .serif))
-                        .foregroundStyle(state.isOver ? Color(red: 0.90, green: 0.35, blue: 0.30) : Color(red: 0.79, green: 0.66, blue: 0.43))
+                        .foregroundStyle(state.isOver ? wt.danger : wt.accent)
                     Text("·")
-                        .foregroundStyle(.white.opacity(0.3))
+                        .foregroundStyle(wt.textMuted)
                     Text(state.physicalText ?? attributes.planName)
                         .font(.caption2.bold())
-                        .foregroundStyle(.white.opacity(0.75))
+                        .foregroundStyle(wt.textPrimary.opacity(0.8))
                 }
 
                 Text(state.message)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(wt.textPrimary.opacity(0.85))
                     .lineLimit(1)
 
                 // 核心修复：越线后绝不显示过期的静态时间，显示实时的超限警示
@@ -229,7 +293,7 @@ struct LockScreenLiveActivityView: View {
                                 .font(.caption2.bold())
                         }
                     }
-                    .foregroundStyle(Color(red: 0.90, green: 0.35, blue: 0.30))
+                    .foregroundStyle(wt.danger)
                 } else if let next = state.nextPromptAt {
                     HStack(spacing: 4) {
                         Image(systemName: "bell.badge")
@@ -238,7 +302,7 @@ struct LockScreenLiveActivityView: View {
                         Text(next, style: .timer)
                             .font(.caption2.monospacedDigit())
                     }
-                    .foregroundStyle(Color(red: 0.79, green: 0.66, blue: 0.43).opacity(0.9))
+                    .foregroundStyle(wt.accent.opacity(0.9))
                 } else {
                     HStack(spacing: 4) {
                         Image(systemName: "shield.fill")
@@ -246,7 +310,7 @@ struct LockScreenLiveActivityView: View {
                         Text("节拍守护中")
                             .font(.caption2)
                     }
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(wt.textMuted)
                 }
             }
 
@@ -258,22 +322,22 @@ struct LockScreenLiveActivityView: View {
                     Text("+1")
                         .font(.system(size: 14, weight: .semibold, design: .serif))
                         .frame(width: 44, height: 32)
-                        .background(Capsule().fill(Color(red: 0.79, green: 0.66, blue: 0.43).opacity(0.2)))
-                        .foregroundStyle(Color(red: 0.79, green: 0.66, blue: 0.43))
+                        .background(Capsule().fill(wt.accent.opacity(0.2)))
+                        .foregroundStyle(wt.accent)
                 }
 
                 Link(destination: URL(string: "tingbei://end")!) {
                     Text("收")
                         .font(.system(size: 13, weight: .medium, design: .serif))
                         .frame(width: 44, height: 26)
-                        .background(Capsule().fill(state.isOver ? Color(red: 0.76, green: 0.28, blue: 0.22) : Color.white.opacity(0.12)))
-                        .foregroundStyle(.white)
+                        .background(Capsule().fill(state.isOver ? wt.danger : wt.textPrimary.opacity(0.14)))
+                        .foregroundStyle(state.isOver ? .white : wt.textPrimary)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color(red: 0.05, green: 0.04, blue: 0.03))
+        .background(wt.bg)
     }
 }
 
