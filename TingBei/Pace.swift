@@ -476,28 +476,32 @@ public enum NotificationSoundOption: String, Codable, CaseIterable, Identifiable
 }
 
 public enum HorologyDialStyle: String, Codable, Sendable {
-    case geneva       // 日内瓦条形精密刻度
-    case oriental     // 东方十二辰玉珠星点
-    case breguet      // 古典宝玑铁轨圈与十字线
-    case chronograph  // 现代双层测速仪夜光锚点
+    case geneva       // 朗格双条形日内瓦时标
+    case ruKiln       // 汝窑双弦开片与支钉玉珠
+    case breguet      // 古典宝玑铁轨盘与菱形星标
+    case chronograph  // 深潜倒三角夜光锚点测速盘
+    case enamel       // 大明火珐琅铁轨与十字准星
+    case xuanInk      // 宣纸乌丝双栏与水墨十二辰
 
     public var displayName: String {
         switch self {
-        case .geneva: "日内瓦条形时标"
-        case .oriental: "东方十二辰星点"
-        case .breguet: "古典宝玑铁轨盘"
-        case .chronograph: "深潜夜光测速盘"
+        case .geneva: "朗格双条形时标"
+        case .ruKiln: "宋瓷弦纹开片盘"
+        case .breguet: "古典宝玑星芒盘"
+        case .chronograph: "深潜夜光领航盘"
+        case .enamel: "大明火铁轨准星"
+        case .xuanInk: "宣纸乌丝十二辰"
         }
     }
 }
 
 public enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
-    case obsidianGold = "obsidianGold"         // 曜石黑金（默认深色）
-    case celadonJade = "celadonJade"           // 汝窑天青（宋韵青玉深色）
-    case burgundyCellar = "burgundyCellar"     // 微醺酒庄（勃艮第玫瑰金深色）
-    case midnightSapphire = "midnightSapphire" // 深海蓝盘（皇家午夜蓝深色）
-    case enamelIvory = "enamelIvory"           // 大明火珐琅（日内瓦暖白浅色）
-    case xuanPaperInk = "xuanPaperInk"         // 宣纸水墨（兰亭松烟浅色）
+    case obsidianGold = "obsidianGold"         // 曜石黑金（深色 · 德系朗格黑金）
+    case celadonJade = "celadonJade"           // 汝窑天青（淡雅 · 宋代雨过天青釉）
+    case burgundyCellar = "burgundyCellar"     // 微醺酒庄（深色 · 橡木桶与干邑玫瑰金）
+    case midnightSapphire = "midnightSapphire" // 深海蓝盘（深色 · 皇家午夜蓝与铂金）
+    case enamelIvory = "enamelIvory"           // 大明火珐琅（淡雅 · 日内瓦白瓷与烤蓝钢）
+    case xuanPaperInk = "xuanPaperInk"         // 宣纸水墨（淡雅 · 泾县生宣与松烟泥金）
 
     public var id: String { rawValue }
 
@@ -514,36 +518,36 @@ public enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
 
     public var subtitle: String {
         switch self {
-        case .obsidianGold: "朗格夜宴 · 德系黑金"
-        case .celadonJade: "宋韵流觞 · 雨过天青"
-        case .burgundyCellar: "勃艮第夜 · 玫瑰铜金"
-        case .midnightSapphire: "皇家午夜 · 冰川铂金"
-        case .enamelIvory: "日内瓦白盘 · 琥珀古铜"
-        case .xuanPaperInk: "兰亭雅集 · 宣纸松烟"
+        case .obsidianGold: "朗格夜宴 · 德系蜜金"
+        case .celadonJade: "雨过天青 · 宋瓷开片"
+        case .burgundyCellar: "勃艮第夜 · 干邑玫瑰"
+        case .midnightSapphire: "皇家深潜 · 冰川铂金"
+        case .enamelIvory: "日内瓦白瓷 · 烤蓝钢"
+        case .xuanPaperInk: "兰亭雅集 · 松烟泥金"
         }
     }
 
     public var poeticDescription: String {
         switch self {
         case .obsidianGold:
-            "深邃曜石黑底配朗格香槟金与波尔多红宝石，适合夜间威士忌酒廊与商务晚宴。"
+            "深邃黑曜石表盘配朗格 18K 香槟蜜金、12 点位双条形立体金标与红宝石轴承色。"
         case .celadonJade:
-            "取意宋代汝窑天青釉与竹林夜雨，温润青玉光泽配朱砂印泥，清雅克制。"
+            "真正取意故宫宋代汝窑「雨过天青云破处」，低饱和粉青玛瑙釉面配香灰胎墨字、双弦纹与冰裂开片。"
         case .burgundyCellar:
-            "古老地下橡木桶酒窖、陈年黑皮诺与 18K 玫瑰金怀表，浓郁浪漫的烛光氛围。"
+            "法国烘烤橡木桶暗酒红底、陈年黑皮诺酒液与干邑玫瑰金，表盘饰以古典星芒刻度。"
         case .midnightSapphire:
-            "瑞士深海潜水腕表午夜蓝太阳纹表盘，配冰川铂金与夜光冰蓝，冷静理性。"
+            "瑞士深海潜水名表午夜孔雀蓝太阳纹表盘，配 950 铂金冷银与 12 点位倒三角夜光珠锚点。"
         case .enamelIvory:
-            "大明火暖象牙白珐琅盘配烤漆墨字与琥珀铜金，通透明亮，极适合午宴与日间茶叙。"
+            "800°C 大明火暖瓷白珐琅盘配乌黑烤漆墨字、皇室黄铜金与 290°C 淬火宝玑烤蓝钢。"
         case .xuanPaperInk:
-            "手工生宣米白底、松烟浓墨与苍松黛青，如展开一卷曲水流觞的东方文人手卷。"
+            "泾县古法生宣米白底、徽州松烟浓墨、书画古泥金与西泠八宝朱砂印泥，乌丝界格温润儒雅。"
         }
     }
 
     public var icon: String {
         switch self {
         case .obsidianGold: "wineglass"
-        case .celadonJade: "leaf.fill"
+        case .celadonJade: "drop.halffull"
         case .burgundyCellar: "sparkles"
         case .midnightSapphire: "safari.fill"
         case .enamelIvory: "sun.max.fill"
@@ -553,25 +557,29 @@ public enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
 
     public var isLight: Bool {
         switch self {
-        case .enamelIvory, .xuanPaperInk:
+        case .celadonJade, .enamelIvory, .xuanPaperInk:
             return true
-        case .obsidianGold, .celadonJade, .burgundyCellar, .midnightSapphire:
+        case .obsidianGold, .burgundyCellar, .midnightSapphire:
             return false
         }
     }
 
     public var modeTag: String {
-        isLight ? "浅色日间" : "深色夜间"
+        switch self {
+        case .celadonJade: "温润青釉"
+        case .enamelIvory, .xuanPaperInk: "淡雅浅色"
+        case .obsidianGold, .burgundyCellar, .midnightSapphire: "深邃夜宴"
+        }
     }
 
     public var dialStyle: HorologyDialStyle {
         switch self {
         case .obsidianGold: .geneva
-        case .celadonJade: .oriental
+        case .celadonJade: .ruKiln
         case .burgundyCellar: .breguet
         case .midnightSapphire: .chronograph
-        case .enamelIvory: .breguet
-        case .xuanPaperInk: .oriental
+        case .enamelIvory: .enamel
+        case .xuanPaperInk: .xuanInk
         }
     }
 }

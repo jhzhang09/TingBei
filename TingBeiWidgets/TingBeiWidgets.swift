@@ -19,44 +19,46 @@ struct WidgetThemeColors {
     static func resolve(for themeID: String?) -> WidgetThemeColors {
         switch themeID {
         case "celadonJade":
+            // 汝窑天青：雨过天青云破处，温润粉青瓷釉与香灰胎骨墨字
             return WidgetThemeColors(
-                bg: Color(red: 0.04, green: 0.08, blue: 0.08),
-                accent: Color(red: 0.50, green: 0.78, blue: 0.73),
-                danger: Color(red: 0.88, green: 0.36, blue: 0.31),
-                textPrimary: Color(red: 0.91, green: 0.95, blue: 0.94),
-                textMuted: Color.white.opacity(0.6)
+                bg: Color(red: 0.843, green: 0.886, blue: 0.878),
+                accent: Color(red: 0.259, green: 0.467, blue: 0.455),
+                danger: Color(red: 0.698, green: 0.290, blue: 0.255),
+                textPrimary: Color(red: 0.149, green: 0.208, blue: 0.200),
+                textMuted: Color(red: 0.149, green: 0.208, blue: 0.200).opacity(0.62)
             )
         case "burgundyCellar":
             return WidgetThemeColors(
-                bg: Color(red: 0.08, green: 0.03, blue: 0.05),
-                accent: Color(red: 0.90, green: 0.64, blue: 0.52),
-                danger: Color(red: 0.93, green: 0.30, blue: 0.38),
-                textPrimary: Color(red: 0.97, green: 0.92, blue: 0.92),
+                bg: Color(red: 0.071, green: 0.031, blue: 0.035),
+                accent: Color(red: 0.824, green: 0.565, blue: 0.439),
+                danger: Color(red: 0.855, green: 0.220, blue: 0.259),
+                textPrimary: Color(red: 0.961, green: 0.918, blue: 0.910),
                 textMuted: Color.white.opacity(0.6)
             )
         case "midnightSapphire":
             return WidgetThemeColors(
-                bg: Color(red: 0.03, green: 0.06, blue: 0.11),
-                accent: Color(red: 0.48, green: 0.74, blue: 0.94),
-                danger: Color(red: 0.91, green: 0.35, blue: 0.31),
-                textPrimary: Color(red: 0.93, green: 0.95, blue: 0.98),
+                bg: Color(red: 0.027, green: 0.051, blue: 0.086),
+                accent: Color(red: 0.447, green: 0.682, blue: 0.855),
+                danger: Color(red: 0.878, green: 0.302, blue: 0.271),
+                textPrimary: Color(red: 0.925, green: 0.949, blue: 0.976),
                 textMuted: Color.white.opacity(0.6)
             )
         case "enamelIvory":
             return WidgetThemeColors(
-                bg: Color(red: 0.96, green: 0.94, blue: 0.90),
-                accent: Color(red: 0.62, green: 0.41, blue: 0.17),
-                danger: Color(red: 0.76, green: 0.20, blue: 0.17),
-                textPrimary: Color(red: 0.14, green: 0.11, blue: 0.09),
-                textMuted: Color(red: 0.14, green: 0.11, blue: 0.09).opacity(0.6)
+                bg: Color(red: 0.961, green: 0.949, blue: 0.925),
+                accent: Color(red: 0.620, green: 0.416, blue: 0.188),
+                danger: Color(red: 0.722, green: 0.212, blue: 0.180),
+                textPrimary: Color(red: 0.106, green: 0.094, blue: 0.082),
+                textMuted: Color(red: 0.106, green: 0.094, blue: 0.082).opacity(0.6)
             )
         case "xuanPaperInk":
+            // 宣纸水墨：陈年泾县生宣、徽州松烟墨与泥金乌丝
             return WidgetThemeColors(
-                bg: Color(red: 0.93, green: 0.92, blue: 0.90),
-                accent: Color(red: 0.25, green: 0.43, blue: 0.38),
-                danger: Color(red: 0.75, green: 0.21, blue: 0.18),
-                textPrimary: Color(red: 0.12, green: 0.13, blue: 0.12),
-                textMuted: Color(red: 0.12, green: 0.13, blue: 0.12).opacity(0.6)
+                bg: Color(red: 0.937, green: 0.922, blue: 0.886),
+                accent: Color(red: 0.451, green: 0.365, blue: 0.247),
+                danger: Color(red: 0.737, green: 0.204, blue: 0.169),
+                textPrimary: Color(red: 0.122, green: 0.118, blue: 0.110),
+                textMuted: Color(red: 0.122, green: 0.118, blue: 0.110).opacity(0.6)
             )
         default:
             return WidgetThemeColors(

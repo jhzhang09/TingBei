@@ -41,116 +41,116 @@ enum Theme {
     static func palette(for theme: AppTheme) -> ThemePalette {
         switch theme {
         case .obsidianGold:
-            // 1. 曜石黑金 · 朗格夜宴 (德系黑金精密腕表)
-            let creamBase = Color(red: 0.94, green: 0.90, blue: 0.84)
+            // 1. 曜石黑金 · 朗格夜宴 (德系 18K 香槟蜜金与德国银夹板)
+            let creamBase = Color(red: 0.945, green: 0.918, blue: 0.871)
             return ThemePalette(
-                bg: Color(red: 0.035, green: 0.030, blue: 0.026),       // 深邃曜石黑 #090807
-                raised: Color(red: 0.090, green: 0.080, blue: 0.070),   // 丝绒暗金底 #171412
-                surface: Color(red: 0.135, green: 0.120, blue: 0.105),  // 机械夹板灰金 #221E1B
-                cream: Color(red: 0.950, green: 0.920, blue: 0.870),    // 象牙银白 #F2EBE0
+                bg: Color(red: 0.039, green: 0.035, blue: 0.031),       // 纯正黑曜石 #0A0908
+                raised: Color(red: 0.086, green: 0.078, blue: 0.071),   // 德国银暖灰黑夹板 #161412
+                surface: Color(red: 0.133, green: 0.122, blue: 0.110),  // 日内瓦条纹夹板槽 #221F1C
+                cream: creamBase,                                       // 银白刻度 #F1EAE0
                 mute: creamBase.opacity(0.54),
                 faint: creamBase.opacity(0.11),
-                gold: Color(red: 0.830, green: 0.700, blue: 0.470),     // 朗格香槟金 #D4B278
-                goldBright: Color(red: 0.950, green: 0.850, blue: 0.650),
-                wine: Color(red: 0.820, green: 0.270, blue: 0.230),     // 波尔多红宝石 #D1453B
-                sage: Color(red: 0.560, green: 0.710, blue: 0.540),     // 翡翠鼠尾草绿
-                water: Color(red: 0.440, green: 0.720, blue: 0.920),    // 蓝宝石冰水色
+                gold: Color(red: 0.784, green: 0.643, blue: 0.431),     // 朗格 18K 香槟蜜金 Honey Gold #C8A46E
+                goldBright: Color(red: 0.902, green: 0.776, blue: 0.565), // 抛光蜜金高光 #E6C690
+                wine: Color(red: 0.776, green: 0.231, blue: 0.204),     // 机芯红宝石轴承色 #C63B34
+                sage: Color(red: 0.545, green: 0.698, blue: 0.529),     // 翡翠鼠尾草绿
+                water: Color(red: 0.365, green: 0.576, blue: 0.808),    // 德系烤蓝钢螺丝色 #5D93CE
                 ink: Color(red: 0.050, green: 0.040, blue: 0.030),
                 isLight: false
             )
 
         case .celadonJade:
-            // 2. 汝窑天青 · 宋韵流觞 (雨过天青云破处)
-            let creamBase = Color(red: 0.88, green: 0.95, blue: 0.94)
+            // 2. 汝窑天青 · 宋韵流觞 (真正故宫宋代汝窑「雨过天青云破处」淡雅粉青玛瑙釉)
+            let inkBase = Color(red: 0.149, green: 0.208, blue: 0.200)  // 汝窑香灰胎铁足深黛墨 #263533
             return ThemePalette(
-                bg: Color(red: 0.035, green: 0.063, blue: 0.063),       // 深竹墨底 #091010
-                raised: Color(red: 0.067, green: 0.114, blue: 0.114),   // 苍山青黛 #111D1D
-                surface: Color(red: 0.102, green: 0.169, blue: 0.165),  // 青瓷釉盘 #1A2B2A
-                cream: Color(red: 0.910, green: 0.953, blue: 0.945),    // 影青月白 #E8F3F1
-                mute: creamBase.opacity(0.56),
-                faint: creamBase.opacity(0.12),
-                gold: Color(red: 0.455, green: 0.737, blue: 0.690),     // 汝窑天青 #74BCB0
-                goldBright: Color(red: 0.640, green: 0.875, blue: 0.835), // 凝脂白玉青 #A3DFD5
-                wine: Color(red: 0.855, green: 0.365, blue: 0.310),     // 朱砂印泥 #DA5D4F
-                sage: Color(red: 0.490, green: 0.780, blue: 0.610),     // 竹叶翠
-                water: Color(red: 0.450, green: 0.770, blue: 0.910),    // 清泉水色
-                ink: Color(red: 0.030, green: 0.065, blue: 0.062),
-                isLight: false
+                bg: Color(red: 0.843, green: 0.886, blue: 0.878),       // 雨过天青淡雾釉底 #D7E2E0
+                raised: Color(red: 0.918, green: 0.945, blue: 0.939),   // 凝脂天青月白浮雕釉面 #EAF1EF
+                surface: Color(red: 0.776, green: 0.835, blue: 0.824),  // 弦纹凹槽积釉天青 #C6D5D2
+                cream: inkBase,                                         // 香灰胎深黛墨
+                mute: inkBase.opacity(0.55),
+                faint: inkBase.opacity(0.11),
+                gold: Color(red: 0.259, green: 0.467, blue: 0.455),     // 秘色深天青碧玉 #427774
+                goldBright: Color(red: 0.337, green: 0.557, blue: 0.541), // 温润玛瑙青釉高光 #568E8A
+                wine: Color(red: 0.698, green: 0.290, blue: 0.255),     // 宋画矿物暗朱砂印泥 #B24A41
+                sage: Color(red: 0.290, green: 0.506, blue: 0.424),     // 龙泉梅子青 #4A816C
+                water: Color(red: 0.267, green: 0.486, blue: 0.596),    // 影青湖水蓝 #447C98
+                ink: Color(red: 0.945, green: 0.969, blue: 0.965),      // 月白釉反白字
+                isLight: true
             )
 
         case .burgundyCellar:
-            // 3. 微醺酒庄 · 勃艮第夜 (橡木桶与 18K 玫瑰铜金)
-            let creamBase = Color(red: 0.97, green: 0.91, blue: 0.90)
+            // 3. 微醺酒庄 · 勃艮第夜 (法国烘烤橡木桶、陈年黑皮诺与干邑玫瑰金)
+            let creamBase = Color(red: 0.961, green: 0.918, blue: 0.890)
             return ThemePalette(
-                bg: Color(red: 0.067, green: 0.027, blue: 0.038),       // 暗夜酒窖 #11070A
-                raised: Color(red: 0.122, green: 0.055, blue: 0.075),   // 紫檀橡木 #1F0E13
-                surface: Color(red: 0.176, green: 0.086, blue: 0.110),  // 丝绒勃艮第 #2D161C
-                cream: Color(red: 0.973, green: 0.922, blue: 0.918),    // 暖羊绒白 #F8EBEA
+                bg: Color(red: 0.071, green: 0.031, blue: 0.035),       // 百年地下酒窖深褐红 #120809
+                raised: Color(red: 0.129, green: 0.059, blue: 0.067),   // 法国烘烤橡木桶暗酒红 #210F11
+                surface: Color(red: 0.192, green: 0.090, blue: 0.102),  // 陈年黑皮诺丝绒酒液 #31171A
+                cream: creamBase,                                       // 酒标羊皮纸暖白 #F5EAE3
                 mute: creamBase.opacity(0.55),
                 faint: creamBase.opacity(0.12),
-                gold: Color(red: 0.878, green: 0.612, blue: 0.490),     // 18K 玫瑰铜金 #E09C7D
-                goldBright: Color(red: 0.965, green: 0.765, blue: 0.667), // 烛光玫瑰金 #F6C3AA
-                wine: Color(red: 0.925, green: 0.290, blue: 0.365),     // 宝石绯红 #EC4A5D
-                sage: Color(red: 0.560, green: 0.730, blue: 0.580),     // 庄园橄榄绿
-                water: Color(red: 0.520, green: 0.730, blue: 0.910),    // 冰晶水蓝
-                ink: Color(red: 0.090, green: 0.030, blue: 0.045),
+                gold: Color(red: 0.824, green: 0.565, blue: 0.439),     // 干邑琥珀 18K 玫瑰金 #D29070
+                goldBright: Color(red: 0.929, green: 0.710, blue: 0.588), // 烛光玫瑰金 #EDB596
+                wine: Color(red: 0.855, green: 0.235, blue: 0.282),     // 醒酒器红宝石光 #DA3C48
+                sage: Color(red: 0.518, green: 0.686, blue: 0.541),     // 葡萄庄园鼠尾草绿 #84AF8A
+                water: Color(red: 0.490, green: 0.698, blue: 0.878),    // 冰桶晶蓝
+                ink: Color(red: 0.090, green: 0.030, blue: 0.038),
                 isLight: false
             )
 
         case .midnightSapphire:
-            // 4. 深海蓝盘 · 皇家午夜 (瑞士深潜冰川铂金)
-            let creamBase = Color(red: 0.91, green: 0.95, blue: 0.99)
+            // 4. 深海蓝盘 · 皇家午夜 (瑞士鹦鹉螺孔雀蓝太阳纹与 950 铂金冷银)
+            let creamBase = Color(red: 0.925, green: 0.949, blue: 0.976)
             return ThemePalette(
-                bg: Color(red: 0.024, green: 0.043, blue: 0.078),       // 深渊午夜蓝 #060B14
-                raised: Color(red: 0.055, green: 0.090, blue: 0.153),   // 皇家海军蓝 #0E1727
-                surface: Color(red: 0.090, green: 0.141, blue: 0.227),  // 蓝钢夹板 #17243A
-                cream: Color(red: 0.925, green: 0.953, blue: 0.984),    // 冰川银白 #ECF3FB
+                bg: Color(red: 0.027, green: 0.051, blue: 0.086),       // 深海海沟午夜蓝 #070D16
+                raised: Color(red: 0.059, green: 0.102, blue: 0.165),   // 鹦鹉螺孔雀蓝灰盘面 #0F1A2A
+                surface: Color(red: 0.098, green: 0.161, blue: 0.247),  // 日内瓦拉丝蓝钢 #19293F
+                cream: creamBase,                                       // 950 铂金冷银白 #ECF2F9
                 mute: creamBase.opacity(0.55),
                 faint: creamBase.opacity(0.12),
-                gold: Color(red: 0.435, green: 0.698, blue: 0.910),     // 冰魄蓝铂金 #6FB2E8
-                goldBright: Color(red: 0.655, green: 0.847, blue: 0.988), // 夜光冰川蓝 #A7D8FC
-                wine: Color(red: 0.910, green: 0.345, blue: 0.310),     // 信号珊瑚红 #E8584F
-                sage: Color(red: 0.410, green: 0.780, blue: 0.640),     // 极光薄荷绿
-                water: Color(red: 0.340, green: 0.800, blue: 0.980),    // 深海活水蓝
+                gold: Color(red: 0.447, green: 0.682, blue: 0.855),     // Super-LumiNova 冰川蓝铂金 #72AEDA
+                goldBright: Color(red: 0.678, green: 0.851, blue: 0.969), // 高光铂金冰蓝 #ADD9F7
+                wine: Color(red: 0.886, green: 0.325, blue: 0.263),     // 深潜减压阀信号橙红 #E25343
+                sage: Color(red: 0.410, green: 0.765, blue: 0.635),     // 极光薄荷绿
+                water: Color(red: 0.340, green: 0.780, blue: 0.965),    // 深海活水蓝
                 ink: Color(red: 0.024, green: 0.050, blue: 0.095),
                 isLight: false
             )
 
         case .enamelIvory:
-            // 5. 大明火珐琅 · 日内瓦白盘 (浅色日间名表)
-            let inkBase = Color(red: 0.133, green: 0.110, blue: 0.090)
+            // 5. 大明火珐琅 · 日内瓦白瓷 (800°C 大明火白珐琅、乌黑烤漆与 290°C 淬火宝玑烤蓝钢)
+            let inkBase = Color(red: 0.106, green: 0.094, blue: 0.082)  // 大明火黑珐琅烤漆浓墨 #1B1815
             return ThemePalette(
-                bg: Color(red: 0.957, green: 0.937, blue: 0.898),       // 大明火暖象牙白 #F4EFE5
-                raised: Color(red: 0.996, green: 0.988, blue: 0.973),   // 高光瓷白浮雕卡 #FEFDF8
-                surface: Color(red: 0.902, green: 0.875, blue: 0.820),  // 羊皮纸灰金槽 #E6DFD1
-                cream: inkBase,                                         // 烤漆浓墨黑褐 #221C17
-                mute: inkBase.opacity(0.56),
-                faint: inkBase.opacity(0.11),
-                gold: Color(red: 0.600, green: 0.396, blue: 0.165),     // 古董琥珀铜金 #99652A
-                goldBright: Color(red: 0.710, green: 0.475, blue: 0.196), // 皇室黄铜金 #B57932
-                wine: Color(red: 0.760, green: 0.200, blue: 0.165),     // 勃艮第封印红 #C2332A
-                sage: Color(red: 0.220, green: 0.510, blue: 0.345),     // 古典庄园绿 #388258
-                water: Color(red: 0.165, green: 0.455, blue: 0.680),    // 宝玑烤蓝钢水色 #2A74AD
-                ink: Color(red: 0.996, green: 0.988, blue: 0.973),      // 主按钮瓷白反白字
+                bg: Color(red: 0.961, green: 0.949, blue: 0.925),       // 800°C 大明火暖象牙瓷白 #F5F2EC
+                raised: Color(red: 0.996, green: 0.992, blue: 0.984),   // 纯白抛光珐琅盘面 #FEFDFA
+                surface: Color(red: 0.914, green: 0.894, blue: 0.855),  // 日内瓦沙金内圈槽 #E9E4DA
+                cream: inkBase,                                         // 乌黑烤漆字墨
+                mute: inkBase.opacity(0.55),
+                faint: inkBase.opacity(0.10),
+                gold: Color(red: 0.620, green: 0.416, blue: 0.188),     // 宝玑古典皇室黄铜金 #9E6A30
+                goldBright: Color(red: 0.737, green: 0.506, blue: 0.243), // 18K 玫瑰古铜金 #BC813E
+                wine: Color(red: 0.753, green: 0.196, blue: 0.161),     // 日内瓦火漆封印红 #C03229
+                sage: Color(red: 0.220, green: 0.502, blue: 0.345),     // 古典庄园绿 #388058
+                water: Color(red: 0.125, green: 0.369, blue: 0.620),    // 290°C 淬火宝玑烤蓝钢 #205E9E
+                ink: Color(red: 0.996, green: 0.992, blue: 0.984),      // 主按钮瓷白反白字
                 isLight: true
             )
 
         case .xuanPaperInk:
-            // 6. 宣纸水墨 · 兰亭雅集 (浅色东方茶酒手卷)
-            let inkBase = Color(red: 0.118, green: 0.125, blue: 0.118)
+            // 6. 宣纸水墨 · 兰亭雅集 (泾县陈年古法生宣、徽州松烟浓墨、书画古泥金与西泠朱砂印)
+            let inkBase = Color(red: 0.122, green: 0.118, blue: 0.110)  // 徽州松烟浓墨 #1F1E1C
             return ThemePalette(
-                bg: Color(red: 0.933, green: 0.922, blue: 0.898),       // 古法生宣米白 #EEEBE5
-                raised: Color(red: 0.984, green: 0.976, blue: 0.961),   // 云母宣纸净白 #FBF9F5
-                surface: Color(red: 0.875, green: 0.859, blue: 0.827),  // 端砚石浅灰 #DFDBD3
-                cream: inkBase,                                         // 松烟浓墨 #1E201E
+                bg: Color(red: 0.937, green: 0.922, blue: 0.886),       // 泾县陈年古法生宣米白 #EFEBE2
+                raised: Color(red: 0.976, green: 0.969, blue: 0.945),   // 云母洒金净皮宣 #F9F7F1
+                surface: Color(red: 0.878, green: 0.859, blue: 0.816),  // 端砚淡墨水痕灰 #E0DBD0
+                cream: inkBase,                                         // 徽州松烟浓墨
                 mute: inkBase.opacity(0.56),
                 faint: inkBase.opacity(0.11),
-                gold: Color(red: 0.235, green: 0.408, blue: 0.361),     // 苍松黛青 #3C685C
-                goldBright: Color(red: 0.298, green: 0.494, blue: 0.439), // 翠竹青碧 #4C7E70
-                wine: Color(red: 0.745, green: 0.212, blue: 0.176),     // 朱砂印泥红 #BE362D
-                sage: Color(red: 0.275, green: 0.490, blue: 0.353),     // 青苔绿 #467D5A
-                water: Color(red: 0.212, green: 0.447, blue: 0.580),    // 青花瓷水蓝 #367294
-                ink: Color(red: 0.984, green: 0.976, blue: 0.961),      // 宣纸反白字
+                gold: Color(red: 0.451, green: 0.365, blue: 0.247),     // 书画古泥金 / 乌金铜镇纸色 #735D3F
+                goldBright: Color(red: 0.565, green: 0.463, blue: 0.322), // 宣纸洒金铜色 #907652
+                wine: Color(red: 0.737, green: 0.204, blue: 0.169),     // 西泠八宝印泥朱砂红 #BC342B
+                sage: Color(red: 0.282, green: 0.471, blue: 0.384),     // 宋画花青石绿 #487862
+                water: Color(red: 0.227, green: 0.416, blue: 0.533),    // 敦煌花青水蓝 #3A6A88
+                ink: Color(red: 0.976, green: 0.969, blue: 0.945),      // 宣纸反白字
                 isLight: true
             )
         }
@@ -845,11 +845,11 @@ struct HomeView: View {
                                             .font(.system(size: 13.5, weight: isSelected ? .semibold : .medium, design: .serif))
                                             .foregroundStyle(pal.cream)
                                         if theme.isLight {
-                                            Text("浅")
+                                            Text(theme == .celadonJade ? "青釉" : "浅色")
                                                 .font(.system(size: 8, weight: .bold))
                                                 .padding(.horizontal, 4)
                                                 .padding(.vertical, 1)
-                                                .background(Capsule().fill(pal.gold.opacity(0.18)))
+                                                .background(Capsule().fill(pal.gold.opacity(0.16)))
                                                 .foregroundStyle(pal.gold)
                                         }
                                     }
@@ -1856,73 +1856,196 @@ struct DialTicksView: View {
             ZStack {
                 switch style {
                 case .geneva:
-                    // 日内瓦条形精密刻度：48 枚次刻度细线 + 12 枚主香槟金条形时标
+                    // 1. 曜石黑金 · 朗格双条形时标：48 枚次刻度 + 11 枚主金标 + 12 点位标志性双平行立体金条
                     Path { path in
                         for i in 0..<60 where i % 5 != 0 {
                             let angle = Double(i) * 6.0 * .pi / 180.0
                             let r1 = radius
-                            let r2 = radius - 4
+                            let r2 = radius - 3.8
                             path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
                             path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
                         }
                     }
-                    .stroke(tickColor.opacity(0.16), lineWidth: 0.8)
+                    .stroke(tickColor.opacity(0.15), lineWidth: 0.75)
 
                     Path { path in
-                        for i in stride(from: 0, to: 60, by: 5) {
+                        // 12 点位双条形平行立体金标
+                        let offset = max(1.6, radius * 0.022)
+                        let rTop = radius
+                        let rBottom = radius - 9.5
+                        path.move(to: CGPoint(x: center.x - offset, y: center.y - rTop))
+                        path.addLine(to: CGPoint(x: center.x - offset, y: center.y - rBottom))
+                        path.move(to: CGPoint(x: center.x + offset, y: center.y - rTop))
+                        path.addLine(to: CGPoint(x: center.x + offset, y: center.y - rBottom))
+
+                        // 其余 11 枚单条形金标
+                        for i in stride(from: 5, to: 60, by: 5) {
                             let angle = Double(i) * 6.0 * .pi / 180.0
                             let r1 = radius
-                            let r2 = radius - 8.5
+                            let r2 = radius - (i % 15 == 0 ? 9.0 : 7.5)
                             path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
                             path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
                         }
                     }
-                    .stroke(goldColor.opacity(0.62), lineWidth: 1.5)
+                    .stroke(goldColor.opacity(0.75), lineWidth: 1.5)
 
-                case .oriental:
-                    // 东方十二辰星点：温润细线内环 + 48 枚微珠点 + 12 枚十二辰双圆玉珠时标
+                case .ruKiln:
+                    // 2. 汝窑天青 · 宋瓷弦纹开片盘：外内双道器物弦纹 + 隐约蝉翼冰裂开片纹 + 十二辰芝麻支钉玉珠
                     Circle()
-                        .stroke(goldColor.opacity(0.16), lineWidth: 0.6)
-                        .padding(3.5)
+                        .stroke(goldColor.opacity(0.26), lineWidth: 0.65)
+                        .padding(1.5)
+                    Circle()
+                        .stroke(goldColor.opacity(0.16), lineWidth: 0.55)
+                        .padding(6.0)
 
+                    // 汝窑蝉翼冰裂纹（极淡雅的几何折线釉裂纹理，仅在盘缘与内圈隐现）
                     Path { path in
-                        for i in 0..<60 where i % 5 != 0 {
-                            let angle = Double(i) * 6.0 * .pi / 180.0
-                            let r = radius - 3.5
-                            let pt = CGPoint(x: center.x + r * sin(angle), y: center.y - r * cos(angle))
-                            path.addEllipse(in: CGRect(x: pt.x - 0.8, y: pt.y - 0.8, width: 1.6, height: 1.6))
+                        let crackAngles: [(Double, Double, Double)] = [
+                            (22, 28, 19), (78, 71, 82), (138, 146, 134),
+                            (205, 198, 210), (262, 269, 258), (318, 312, 324)
+                        ]
+                        for (a1, a2, a3) in crackAngles {
+                            let rad1 = a1 * .pi / 180.0
+                            let rad2 = a2 * .pi / 180.0
+                            let rad3 = a3 * .pi / 180.0
+                            let rOuter = radius - 2.0
+                            let rMid = radius * 0.80
+                            let rInner = radius * 0.62
+                            path.move(to: CGPoint(x: center.x + rOuter * sin(rad1), y: center.y - rOuter * cos(rad1)))
+                            path.addLine(to: CGPoint(x: center.x + rMid * sin(rad2), y: center.y - rMid * cos(rad2)))
+                            path.addLine(to: CGPoint(x: center.x + rInner * sin(rad3), y: center.y - rInner * cos(rad3)))
                         }
                     }
-                    .fill(tickColor.opacity(0.20))
+                    .stroke(goldColor.opacity(0.11), lineWidth: 0.5)
 
+                    // 十二辰汝瓷芝麻支钉痕与玉珠时标
                     Path { path in
                         for i in stride(from: 0, to: 60, by: 5) {
                             let angle = Double(i) * 6.0 * .pi / 180.0
                             let isCardinal = i % 15 == 0
-                            let rOuter = radius - 2.5
-                            let ptOuter = CGPoint(x: center.x + rOuter * sin(angle), y: center.y - rOuter * cos(angle))
-                            let d: CGFloat = isCardinal ? 4.2 : 3.2
-                            path.addEllipse(in: CGRect(x: ptOuter.x - d / 2, y: ptOuter.y - d / 2, width: d, height: d))
-
+                            let r = radius - 3.8
+                            let pt = CGPoint(x: center.x + r * sin(angle), y: center.y - r * cos(angle))
                             if isCardinal {
-                                let rInner = radius - 7.5
-                                let ptInner = CGPoint(x: center.x + rInner * sin(angle), y: center.y - rInner * cos(angle))
-                                path.addEllipse(in: CGRect(x: ptInner.x - 1.3, y: ptInner.y - 1.3, width: 2.6, height: 2.6))
+                                // 四正时辰：微小芝麻梭形支钉点
+                                let d: CGFloat = 3.6
+                                path.addEllipse(in: CGRect(x: pt.x - d / 2, y: pt.y - d / 2, width: d, height: d))
+                            } else {
+                                let d: CGFloat = 2.2
+                                path.addEllipse(in: CGRect(x: pt.x - d / 2, y: pt.y - d / 2, width: d, height: d))
                             }
                         }
                     }
-                    .fill(goldColor.opacity(0.75))
+                    .fill(goldColor.opacity(0.68))
 
                 case .breguet:
-                    // 古典宝玑铁轨分钟圈：内外双轨环 + 60 格铁轨枕木 + 12 枚古典圆点时标
+                    // 3. 微醺酒庄 · 古典宝玑星芒盘：内外精细花边轨 + 48 枚玫瑰金微珠 + 12 枚古典四芒菱星时标
                     Circle()
-                        .stroke(goldColor.opacity(0.28), lineWidth: 0.7)
+                        .stroke(goldColor.opacity(0.24), lineWidth: 0.65)
                     Circle()
-                        .stroke(goldColor.opacity(0.22), lineWidth: 0.7)
-                        .padding(5.5)
+                        .stroke(goldColor.opacity(0.16), lineWidth: 0.55)
+                        .padding(6.5)
 
                     Path { path in
-                        for i in 0..<60 {
+                        for i in 0..<60 where i % 5 != 0 {
+                            let angle = Double(i) * 6.0 * .pi / 180.0
+                            let r = radius - 3.2
+                            let pt = CGPoint(x: center.x + r * sin(angle), y: center.y - r * cos(angle))
+                            path.addEllipse(in: CGRect(x: pt.x - 0.75, y: pt.y - 0.75, width: 1.5, height: 1.5))
+                        }
+                    }
+                    .fill(tickColor.opacity(0.22))
+
+                    Path { path in
+                        for i in stride(from: 0, to: 60, by: 5) {
+                            let angle = Double(i) * 6.0 * .pi / 180.0
+                            let rCenter = radius - 3.4
+                            let len: CGFloat = (i % 15 == 0) ? 3.8 : 2.6
+                            let wid: CGFloat = (i % 15 == 0) ? 1.8 : 1.2
+                            let sinA = sin(angle)
+                            let cosA = cos(angle)
+                            // 沿半径方向的菱形星芒四顶点
+                            let top = CGPoint(x: center.x + (rCenter + len) * sinA, y: center.y - (rCenter + len) * cosA)
+                            let bottom = CGPoint(x: center.x + (rCenter - len) * sinA, y: center.y - (rCenter - len) * cosA)
+                            let left = CGPoint(x: center.x + rCenter * sinA - wid * cosA, y: center.y - rCenter * cosA - wid * sinA)
+                            let right = CGPoint(x: center.x + rCenter * sinA + wid * cosA, y: center.y - rCenter * cosA + wid * sinA)
+                            path.move(to: top)
+                            path.addLine(to: right)
+                            path.addLine(to: bottom)
+                            path.addLine(to: left)
+                            path.closeSubpath()
+                        }
+                    }
+                    .fill(goldColor.opacity(0.82))
+
+                case .chronograph:
+                    // 4. 深海蓝盘 · 深潜夜光领航盘：60 格精密潜水刻度 + 12 点位倒三角夜光锚点 + 3/6/9 加粗夜光柱
+                    Path { path in
+                        for i in 0..<60 where i % 5 != 0 {
+                            let angle = Double(i) * 6.0 * .pi / 180.0
+                            let r1 = radius
+                            let r2 = radius - 4.2
+                            path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
+                            path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
+                        }
+                    }
+                    .stroke(tickColor.opacity(0.22), lineWidth: 0.85)
+
+                    Path { path in
+                        for i in stride(from: 5, to: 60, by: 5) where i % 15 != 0 {
+                            let angle = Double(i) * 6.0 * .pi / 180.0
+                            let r1 = radius
+                            let r2 = radius - 7.5
+                            path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
+                            path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
+                        }
+                    }
+                    .stroke(goldColor.opacity(0.68), lineWidth: 1.7)
+
+                    // 3 / 6 / 9 点位加粗夜光领航条
+                    Path { path in
+                        for i in [15, 30, 45] {
+                            let angle = Double(i) * 6.0 * .pi / 180.0
+                            let r1 = radius
+                            let r2 = radius - 9.8
+                            path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
+                            path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
+                        }
+                    }
+                    .stroke(goldColor, style: StrokeStyle(lineWidth: 2.8, lineCap: .round))
+
+                    // 12 点位瑞士潜水表标志性倒三角夜光锚点
+                    Path { path in
+                        let triHalfW = max(3.2, radius * 0.045)
+                        let triH = max(6.5, radius * 0.085)
+                        path.move(to: CGPoint(x: center.x - triHalfW, y: center.y - radius + 0.5))
+                        path.addLine(to: CGPoint(x: center.x + triHalfW, y: center.y - radius + 0.5))
+                        path.addLine(to: CGPoint(x: center.x, y: center.y - radius + triH))
+                        path.closeSubpath()
+                    }
+                    .fill(goldColor)
+
+                case .enamel:
+                    // 5. 大明火珐琅 · 铁轨准星盘：经典双环铁轨分钟圈（每5格加粗枕木）+ 细若游丝的古典十字准星线
+                    Circle()
+                        .stroke(tickColor.opacity(0.32), lineWidth: 0.75)
+                    Circle()
+                        .stroke(tickColor.opacity(0.24), lineWidth: 0.65)
+                        .padding(5.5)
+
+                    // 古典天文台表 Sector Dial 十字准星细线（仅在盘缘轻触）
+                    Path { path in
+                        for i in [0, 15, 30, 45] {
+                            let angle = Double(i) * 6.0 * .pi / 180.0
+                            let r1 = radius - 5.5
+                            let r2 = radius - 12.5
+                            path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
+                            path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
+                        }
+                    }
+                    .stroke(goldColor.opacity(0.45), lineWidth: 0.75)
+
+                    Path { path in
+                        for i in 0..<60 where i % 5 != 0 {
                             let angle = Double(i) * 6.0 * .pi / 180.0
                             let r1 = radius
                             let r2 = radius - 5.5
@@ -1930,53 +2053,45 @@ struct DialTicksView: View {
                             path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
                         }
                     }
-                    .stroke(tickColor.opacity(0.18), lineWidth: 0.7)
+                    .stroke(tickColor.opacity(0.22), lineWidth: 0.65)
 
                     Path { path in
                         for i in stride(from: 0, to: 60, by: 5) {
                             let angle = Double(i) * 6.0 * .pi / 180.0
-                            let r = radius - 8.2
-                            let pt = CGPoint(x: center.x + r * sin(angle), y: center.y - r * cos(angle))
-                            let size: CGFloat = (i % 15 == 0) ? 3.6 : 2.4
-                            path.addEllipse(in: CGRect(x: pt.x - size / 2, y: pt.y - size / 2, width: size, height: size))
-                        }
-                    }
-                    .fill(goldColor.opacity(0.78))
-
-                case .chronograph:
-                    // 深潜夜光测速盘：密集双层测速细线 + 12 枚夜光柱 + 4 枚 12/3/6/9 加粗领航锚点
-                    Path { path in
-                        for i in 0..<60 where i % 5 != 0 {
-                            let angle = Double(i) * 6.0 * .pi / 180.0
                             let r1 = radius
-                            let r2 = radius - 4.5
+                            let r2 = radius - 5.5
                             path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
                             path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
                         }
                     }
-                    .stroke(tickColor.opacity(0.20), lineWidth: 0.9)
+                    .stroke(goldColor.opacity(0.85), lineWidth: 1.5)
 
+                case .xuanInk:
+                    // 6. 宣纸水墨 · 宣纸乌丝十二辰：宋刻本乌丝外粗内细双边栏 + 十二辰竖向乌丝界格 + 12 点位微型朱砂方印
+                    Circle()
+                        .stroke(tickColor.opacity(0.32), lineWidth: 1.1)
+                    Circle()
+                        .stroke(tickColor.opacity(0.18), lineWidth: 0.55)
+                        .padding(3.2)
+
+                    // 十二辰乌丝墨线时标（除 12 点位留给朱砂印外）
                     Path { path in
-                        for i in stride(from: 0, to: 60, by: 5) where i % 15 != 0 {
+                        for i in stride(from: 5, to: 60, by: 5) {
                             let angle = Double(i) * 6.0 * .pi / 180.0
-                            let r1 = radius
-                            let r2 = radius - 8.0
+                            let r1 = radius - 3.2
+                            let r2 = radius - (i % 15 == 0 ? 10.0 : 7.2)
                             path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
                             path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
                         }
                     }
-                    .stroke(goldColor.opacity(0.65), lineWidth: 1.8)
+                    .stroke(tickColor.opacity(0.55), style: StrokeStyle(lineWidth: 1.25, lineCap: .round))
 
-                    Path { path in
-                        for i in stride(from: 0, to: 60, by: 15) {
-                            let angle = Double(i) * 6.0 * .pi / 180.0
-                            let r1 = radius
-                            let r2 = radius - 10.0
-                            path.move(to: CGPoint(x: center.x + r1 * sin(angle), y: center.y - r1 * cos(angle)))
-                            path.addLine(to: CGPoint(x: center.x + r2 * sin(angle), y: center.y - r2 * cos(angle)))
-                        }
-                    }
-                    .stroke(goldColor, style: StrokeStyle(lineWidth: 2.8, lineCap: .round))
+                    // 12 点位微型西泠朱砂方印章（子时印信）
+                    let sealSize = max(4.2, radius * 0.055)
+                    RoundedRectangle(cornerRadius: 0.8)
+                        .fill(Theme.wine.opacity(0.85))
+                        .frame(width: sealSize, height: sealSize)
+                        .position(x: center.x, y: center.y - radius + 5.5 + sealSize / 2)
                 }
             }
         }
@@ -2639,7 +2754,7 @@ struct ThemeGallerySheet: View {
                         Text("表盘与席间主题雅集")
                             .font(.system(size: 24, weight: .light, design: .serif))
                             .foregroundStyle(Theme.cream)
-                        Text("涵盖 4 款夜间名表酒廊与 2 款日间温润浅色表盘")
+                        Text("涵盖 3 款温润淡雅浅色盘（汝窑 / 珐琅 / 宣纸）与 3 款深邃夜宴盘")
                             .font(.caption)
                             .foregroundStyle(Theme.mute)
                     }
