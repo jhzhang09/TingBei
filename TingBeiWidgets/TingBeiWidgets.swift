@@ -188,25 +188,7 @@ struct WidgetSeal: View {
     let color: Color
 
     var body: some View {
-        GeometryReader { geo in
-            let size = min(geo.size.width, geo.size.height)
-            ZStack {
-                RoundedRectangle(cornerRadius: size * 0.08)
-                    .fill(color)
-                RoundedRectangle(cornerRadius: size * 0.05)
-                    .stroke(Color.white.opacity(0.85), lineWidth: 1)
-                    .padding(size * 0.08)
-                VStack(spacing: -size * 0.04) {
-                    ForEach(Array(text.map(String.init).enumerated()), id: \.offset) { _, ch in
-                        Text(ch)
-                            .font(.system(size: size * 0.34, weight: .heavy, design: .serif))
-                            .foregroundStyle(Color.white.opacity(0.95))
-                    }
-                }
-            }
-            .frame(width: size, height: size)
-            .rotationEffect(.degrees(-8))
-        }
+        CarvedSeal(text: text, color: color)
     }
 }
 
