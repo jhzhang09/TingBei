@@ -232,33 +232,15 @@ struct LogLine: Identifiable {
 
 // MARK: - 朱砂印章：该停档的醒目标记
 
-/// 白文朱砂方印（朱底留白字），两字竖排。用于到线 / 越线时盖在表盘上：
+/// 汉印篆白文朱砂方印，两字自右向左。用于到线 / 越线时盖在表盘上：
 /// 印章是书画里最醒目的符号，能在不破坏表盘美感的前提下把「该停」说清楚。
 struct CinnabarSeal: View {
-    /// 两个字，自上而下竖排，如「当止」「停杯」
+    /// 两个字，首字在右，如「当止」「停杯」
     let text: String
     var size: CGFloat = 58
 
     var body: some View {
-        let chars = text.map(String.init)
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.08)
-                .fill(Theme.wine)
-            // 内框：印章边栏
-            RoundedRectangle(cornerRadius: size * 0.05)
-                .stroke(Color.white.opacity(0.85), lineWidth: 1.2)
-                .padding(size * 0.08)
-            VStack(spacing: -size * 0.04) {
-                ForEach(chars.indices, id: \.self) { i in
-                    Text(chars[i])
-                        .font(.system(size: size * 0.34, weight: .heavy, design: .serif))
-                        .foregroundStyle(Color.white.opacity(0.95))
-                }
-            }
-        }
-        .frame(width: size, height: size)
-        .rotationEffect(.degrees(-8))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text)
+        CarvedSeal(text: text, color: Theme.wine)
+            .frame(width: size, height: size)
     }
 }

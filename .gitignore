@@ -29,3 +29,4 @@ buildDerivedData/
 
 # 续签脚本的本地密钥（Telegram Bot 令牌等），只保留 .renew.env.example 入库
 .renew.env
+__pycache__/
