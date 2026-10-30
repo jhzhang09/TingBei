@@ -528,55 +528,85 @@ final class SessionStore {
         session.prompts = past + future
     }
 
+    /// 系统对单个 App 保留的待发本地通知上限；超出时丢弃触发时间最晚的那些
+    private static let pendingNotificationLimit = 64
+
+    /// 重新排期本场提醒。
+    /// 采用「先腾远处、再加新的、最后删保底」：先删较远的旧提醒，只留最近几条作保底（凑满系统上限），
+    /// 按时间从近到远加入新提醒，最后删掉保底。任何一步被挂起，最近要响的提醒都还在；
+    /// 未完成的部分由下一轮重新排期补齐。旧实现是先全删再逐条加，中途被挂起会把后续提醒全部丢掉。
     func reschedule() {
         let center = UNUserNotificationCenter.current()
         let previous = rescheduleTask
         previous?.cancel()
         rescheduleTask = Task {
+            // 申请后台时间：App 在后台被唤醒（如处理锁屏通知按钮）时，尽量做完本轮排期再被挂起
+            let backgroundToken = BackgroundTaskToken(name: "tingbei.reschedule")
+            defer { backgroundToken.end() }
+
             // 串行化：等上一轮彻底结束再读取待发列表。否则旧任务在本轮读取之后才 add 的过期提醒
             // 不在本轮删除名单里，会变成无人清理的孤儿通知。
             await previous?.value
             guard !Task.isCancelled else { return }
+
             let pending = await center.pendingNotificationRequests()
-            let sessionIDs = pending.map(\.identifier).filter { !$0.hasPrefix("tingbei.test.") }
-            if !sessionIDs.isEmpty {
-                center.removePendingNotificationRequests(withIdentifiers: sessionIDs)
+            let requests = active.map { makePromptRequests(for: $0, now: .now) } ?? []
+            let newIDs = Set(requests.map(\.identifier))
+            // 旧提醒按触发时间从近到远排序；与新提醒同 ID 的会被 add 原地替换，不算旧提醒
+            let stale = pending
+                .filter { !$0.identifier.hasPrefix("tingbei.test.") && !newIDs.contains($0.identifier) }
+                .sorted { Self.fireDate(of: $0) < Self.fireDate(of: $1) }
+                .map(\.identifier)
+
+            let safetyNet = Array(stale.prefix(max(0, Self.pendingNotificationLimit - requests.count)))
+            let farStale = Array(stale.dropFirst(safetyNet.count))
+            if !farStale.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: farStale)
             }
-            guard let session = active, session.endedAt == nil else { return }
-
-            let currentNow = Date.now
-            let upcoming = session.prompts.filter { $0.at > currentNow.addingTimeInterval(1) }.sorted(by: { $0.at < $1.at })
-            var overCounter = 0
-
-            for prompt in upcoming.prefix(Pace.promptBudget) {
-                // 已被新一轮取代时停止补加；残留部分由下一轮读取待发列表后统一删除
+            for request in requests {
+                // 已被新一轮取代时停止补加；保底与残留由下一轮读取待发列表后统一处理
                 if Task.isCancelled { return }
-                let content = UNMutableNotificationContent()
-                if prompt.level == .over {
-                    overCounter += 1
-                }
-                let copy = Pace.notificationCopy(for: prompt, session: session, ordinal: max(1, overCounter))
-                content.title = copy.title
-                content.body = copy.body
-                content.categoryIdentifier = NotificationActionID.category
-                content.threadIdentifier = "tingbei.session"
-                content.userInfo = ["promptID": prompt.id.uuidString]
-
-                // 突破静音/专注模式的强提醒级别
-                content.interruptionLevel = .timeSensitive
-
-                // 配置声音
-                if let soundFile = settings.notificationSound.fileName {
-                    content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
-                } else {
-                    content.sound = .default
-                }
-
-                let interval = max(1.0, prompt.at.timeIntervalSince(currentNow))
-                let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
-                let request = UNNotificationRequest(identifier: "tingbei." + prompt.id.uuidString, content: content, trigger: trigger)
                 try? await center.add(request)
             }
+            if !safetyNet.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: safetyNet)
+            }
+        }
+    }
+
+    private static func fireDate(of request: UNNotificationRequest) -> Date {
+        (request.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate() ?? .distantFuture
+    }
+
+    /// 按时间从近到远生成本场未来提醒的通知请求（最多 promptBudget 条）；会话已结束时为空
+    private func makePromptRequests(for session: Session, now: Date) -> [UNNotificationRequest] {
+        guard session.endedAt == nil else { return [] }
+        let upcoming = session.prompts.filter { $0.at > now.addingTimeInterval(1) }.sorted(by: { $0.at < $1.at })
+        var overCounter = 0
+        return upcoming.prefix(Pace.promptBudget).map { prompt in
+            let content = UNMutableNotificationContent()
+            if prompt.level == .over {
+                overCounter += 1
+            }
+            let copy = Pace.notificationCopy(for: prompt, session: session, ordinal: max(1, overCounter))
+            content.title = copy.title
+            content.body = copy.body
+            content.categoryIdentifier = NotificationActionID.category
+            content.threadIdentifier = "tingbei.session"
+            content.userInfo = ["promptID": prompt.id.uuidString]
+
+            // 时效性级别：可穿透专注模式与通知摘要（需「时效性通知」权限；静音开关下仍不会响铃）
+            content.interruptionLevel = .timeSensitive
+
+            if let soundFile = settings.notificationSound.fileName {
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
+            } else {
+                content.sound = .default
+            }
+
+            let interval = max(1.0, prompt.at.timeIntervalSince(now))
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+            return UNNotificationRequest(identifier: "tingbei." + prompt.id.uuidString, content: content, trigger: trigger)
         }
     }
 
@@ -912,6 +942,25 @@ final class SessionStore {
         return DrinkLog(id: UUID(), presetID: preset.id, name: preset.name, detail: preset.detail, grams: preset.grams, at: at)
     }
     #endif
+}
+
+/// 后台任务令牌：正常结束与时间耗尽两条路径共用同一个句柄，且只结束一次。
+/// 不结束就耗尽时间会被系统直接终止 App，因此过期回调里必须调用 end()。
+@MainActor
+private final class BackgroundTaskToken {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+    init(name: String) {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            self?.end()
+        }
+    }
+
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
 }
 
 struct SavedState: Codable {
