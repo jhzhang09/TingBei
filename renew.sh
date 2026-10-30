@@ -7,9 +7,19 @@ DEVICE_NAME="iPhone-jhzhang"
 LOG_DIR="$HOME/Library/Logs"
 LOG_FILE="$LOG_DIR/TingBeiRenew.log"
 
-# Telegram Bot 推送配置
-TG_BOT_TOKEN="${TG_BOT_TOKEN:-5621381919:AAEe7Qx4OPPfoNJMa0z8MNRm-0-ucqiNsTc}"
-TG_CHAT_ID="${TG_CHAT_ID:-651826297}"
+# Telegram Bot 推送配置：从未入库的本地文件 .renew.env 读取（可被同名环境变量覆盖），
+# 绝不在脚本中写默认值。未配置时仅跳过 Telegram 推送，不影响续签本身。
+ENV_FILE="$SCRIPT_DIR/.renew.env"
+if [ -f "$ENV_FILE" ]; then
+    ENV_TG_BOT_TOKEN="${TG_BOT_TOKEN:-}"
+    ENV_TG_CHAT_ID="${TG_CHAT_ID:-}"
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    TG_BOT_TOKEN="${ENV_TG_BOT_TOKEN:-${TG_BOT_TOKEN:-}}"
+    TG_CHAT_ID="${ENV_TG_CHAT_ID:-${TG_CHAT_ID:-}}"
+fi
+TG_BOT_TOKEN="${TG_BOT_TOKEN:-}"
+TG_CHAT_ID="${TG_CHAT_ID:-}"
 
 mkdir -p "$LOG_DIR"
 

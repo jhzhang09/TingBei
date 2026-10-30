@@ -96,13 +96,10 @@ enum Pace {
             cue = (lastDrink != nil || estimated > 0) ? .settle : .calm
         }
 
-        let pending = session.prompts
-            .filter { $0.reply == nil && $0.at <= now }
-            .max(by: { $0.at < $1.at })
-            .flatMap { prompt -> Prompt? in
-                if let lastDrink, lastDrink.at >= prompt.at { return nil }
-                return prompt
-            }
+        // 待校准提醒按时间从早到晚逐条呈现：每条未回应的过去提醒都在计入推测杯数，
+        // 必须都能被用户确认或消除，不能只露出最近一条而让更早的推测静默累加。
+        let unanswered = session.prompts.filter { $0.reply == nil && $0.at <= now }
+        let pending = unanswered.min(by: { $0.at < $1.at })
         let next = session.prompts
             .filter { $0.reply == nil && $0.at > now }
             .min(by: { $0.at < $1.at })
@@ -155,6 +152,7 @@ enum Pace {
             sinceLastDrink: lastDrink.map { now.timeIntervalSince($0.at) },
             nextPrompt: next,
             pendingPrompt: pending,
+            pendingCount: unanswered.count,
             softLimit: session.softLimit,
             hardLimit: session.hardLimit
         )
@@ -191,17 +189,9 @@ enum Pace {
 
             stepIndex += 1
 
-            // 估算增长：不再碎成零头，而是按阶段平滑增加
-            let stepEstimate: Double
-            if session.estimateWhenSilent {
-                if current == .over {
-                    stepEstimate = 0.2 // 越线后小幅度渐增
-                } else {
-                    stepEstimate = session.softLimit / 4.0 // 4个常规节拍均匀分布
-                }
-            } else {
-                stepEstimate = 0
-            }
+            // 估算增长：按方案自身节奏（预定时长内恰好喝到建议线）× 本拍实际间隔。
+            // 不能按「每拍固定份数」累加：提醒随强度升级越来越密，固定份数会让推测速度越推越快、虚高。
+            let stepEstimate = estimateRate(session) * at.timeIntervalSince(anchor)
 
             units += stepEstimate
             let level = intensity(units: units, elapsed: at.timeIntervalSince(start), session: session)
@@ -475,54 +465,57 @@ public enum NotificationSoundOption: String, Codable, CaseIterable, Identifiable
     }
 }
 
+/// 表盘时标流派。rawValue 已持久化，只能改显示名，不能改 case 名。
 public enum HorologyDialStyle: String, Codable, Sendable {
-    case geneva       // 朗格双条形日内瓦时标
-    case ruKiln       // 汝窑双弦开片与支钉玉珠
-    case breguet      // 古典宝玑铁轨盘与菱形星标
-    case chronograph  // 深潜倒三角夜光锚点测速盘
-    case enamel       // 大明火珐琅铁轨与十字准星
-    case xuanInk      // 宣纸乌丝双栏与水墨十二辰
+    case geneva       // 描金双线：十二点位双金线 + 十一道金标
+    case ruKiln       // 弦纹开片：器物双弦纹 + 冰裂开片 + 支钉玉珠
+    case breguet      // 宝相星芒：花边双轨 + 微珠 + 十二枚四芒宝相星
+    case chronograph  // 北辰夜光：十二点位倒三角北辰 + 三六九夜光柱
+    case enamel       // 界尺双轨：界画式双环分刻 + 四正界线
+    case xuanInk      // 乌丝十二辰：乌丝双栏 + 十二辰界格 + 子位朱印
 
     public var displayName: String {
         switch self {
-        case .geneva: "朗格双条形时标"
-        case .ruKiln: "宋瓷弦纹开片盘"
-        case .breguet: "古典宝玑星芒盘"
-        case .chronograph: "深潜夜光领航盘"
-        case .enamel: "大明火铁轨准星"
-        case .xuanInk: "宣纸乌丝十二辰"
+        case .geneva: "描金双线"
+        case .ruKiln: "弦纹开片"
+        case .breguet: "宝相星芒"
+        case .chronograph: "北辰夜光"
+        case .enamel: "界尺双轨"
+        case .xuanInk: "乌丝十二辰"
         }
     }
 }
 
+/// 席间主题。rawValue 已持久化在用户设置中，只能改显示文案与配色，不能改 case 名或 rawValue。
+/// 命名原则：名实相符——每个主题取一种中国器物、工艺或诗句，配色与表盘纹样都要对得上这个名字。
 public enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
-    case obsidianGold = "obsidianGold"         // 曜石黑金（深色 · 德系朗格黑金）
-    case celadonJade = "celadonJade"           // 汝窑天青（淡雅 · 宋代雨过天青釉）
-    case burgundyCellar = "burgundyCellar"     // 微醺酒庄（深色 · 橡木桶与干邑玫瑰金）
-    case midnightSapphire = "midnightSapphire" // 深海蓝盘（深色 · 皇家午夜蓝与铂金）
-    case enamelIvory = "enamelIvory"           // 大明火珐琅（淡雅 · 日内瓦白瓷与烤蓝钢）
-    case xuanPaperInk = "xuanPaperInk"         // 宣纸水墨（淡雅 · 泾县生宣与松烟泥金）
+    case obsidianGold = "obsidianGold"         // 玄漆描金：黑漆为地，泥金描线
+    case celadonJade = "celadonJade"           // 汝窑天青：雨过天青，冰裂开片
+    case burgundyCellar = "burgundyCellar"     // 琥珀光：取李白「玉碗盛来琥珀光」
+    case midnightSapphire = "midnightSapphire" // 霁蓝映月：霁蓝釉色，月白银辉
+    case enamelIvory = "enamelIvory"           // 牙白界画：象牙瓷白，界尺工笔
+    case xuanPaperInk = "xuanPaperInk"         // 宣纸水墨：松烟浓墨，泥金朱印
 
     public var id: String { rawValue }
 
     public var name: String {
         switch self {
-        case .obsidianGold: "曜石黑金"
+        case .obsidianGold: "玄漆描金"
         case .celadonJade: "汝窑天青"
-        case .burgundyCellar: "微醺酒庄"
-        case .midnightSapphire: "深海蓝盘"
-        case .enamelIvory: "大明火珐琅"
+        case .burgundyCellar: "琥珀光"
+        case .midnightSapphire: "霁蓝映月"
+        case .enamelIvory: "牙白界画"
         case .xuanPaperInk: "宣纸水墨"
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .obsidianGold: "朗格夜宴 · 德系蜜金"
-        case .celadonJade: "雨过天青 · 宋瓷开片"
-        case .burgundyCellar: "勃艮第夜 · 干邑玫瑰"
-        case .midnightSapphire: "皇家深潜 · 冰川铂金"
-        case .enamelIvory: "日内瓦白瓷 · 烤蓝钢"
+        case .obsidianGold: "黑漆为地 · 泥金描线"
+        case .celadonJade: "雨过天青 · 冰裂开片"
+        case .burgundyCellar: "兰陵美酒 · 玉碗琥珀"
+        case .midnightSapphire: "霁蓝釉色 · 月白银辉"
+        case .enamelIvory: "象牙瓷白 · 界尺工笔"
         case .xuanPaperInk: "兰亭雅集 · 松烟泥金"
         }
     }
@@ -530,27 +523,27 @@ public enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
     public var poeticDescription: String {
         switch self {
         case .obsidianGold:
-            "深邃黑曜石表盘配朗格 18K 香槟蜜金、12 点位双条形立体金标与红宝石轴承色。"
+            "取明清黑漆描金器：乌黑漆地温润如夜，泥金细线勾勒刻度，子位以双金线为记。"
         case .celadonJade:
-            "真正取意故宫宋代汝窑「雨过天青云破处」，低饱和粉青玛瑙釉面配香灰胎墨字、双弦纹与冰裂开片。"
+            "取意宋代汝窑「雨过天青云破处」：粉青釉面配香灰胎墨字，器物双弦纹与蝉翼冰裂开片。"
         case .burgundyCellar:
-            "法国烘烤橡木桶暗酒红底、陈年黑皮诺酒液与干邑玫瑰金，表盘饰以古典星芒刻度。"
+            "取李白「兰陵美酒郁金香，玉碗盛来琥珀光」：郁金酒色为地，琥珀暖光为饰，盘缘缀宝相星芒。"
         case .midnightSapphire:
-            "瑞士深海潜水名表午夜孔雀蓝太阳纹表盘，配 950 铂金冷银与 12 点位倒三角夜光珠锚点。"
+            "取明清霁蓝釉：深蓝如夜、釉色匀净，月白银辉为针，子位一枚倒三角作北辰。"
         case .enamelIvory:
-            "800°C 大明火暖瓷白珐琅盘配乌黑烤漆墨字、皇室黄铜金与 290°C 淬火宝玑烤蓝钢。"
+            "取宋元界画以尺引线的工整：象牙瓷白为地，乌墨双界为轨，铜金分刻，四正细线如界尺定位。"
         case .xuanPaperInk:
-            "泾县古法生宣米白底、徽州松烟浓墨、书画古泥金与西泠八宝朱砂印泥，乌丝界格温润儒雅。"
+            "泾县生宣米白为地，徽州松烟浓墨，书画泥金与西泠朱砂印泥，乌丝界格温润儒雅。"
         }
     }
 
     public var icon: String {
         switch self {
-        case .obsidianGold: "wineglass"
+        case .obsidianGold: "paintbrush.pointed"
         case .celadonJade: "drop.halffull"
-        case .burgundyCellar: "sparkles"
-        case .midnightSapphire: "safari.fill"
-        case .enamelIvory: "sun.max.fill"
+        case .burgundyCellar: "wineglass"
+        case .midnightSapphire: "moon.stars"
+        case .enamelIvory: "ruler"
         case .xuanPaperInk: "seal.fill"
         }
     }
@@ -567,8 +560,8 @@ public enum AppTheme: String, Codable, CaseIterable, Identifiable, Sendable {
     public var modeTag: String {
         switch self {
         case .celadonJade: "温润青釉"
-        case .enamelIvory, .xuanPaperInk: "淡雅浅色"
-        case .obsidianGold, .burgundyCellar, .midnightSapphire: "深邃夜宴"
+        case .enamelIvory, .xuanPaperInk: "素雅清昼"
+        case .obsidianGold, .burgundyCellar, .midnightSapphire: "深色夜宴"
         }
     }
 
@@ -652,6 +645,8 @@ struct PaceSnapshot: Equatable {
     var sinceLastDrink: TimeInterval?
     var nextPrompt: Prompt?
     var pendingPrompt: Prompt?
+    /// 尚未回应、且已计入推测的过去提醒条数（含 pendingPrompt 本身）
+    var pendingCount: Int
     var softLimit: Double
     var hardLimit: Double
 }
@@ -755,6 +750,12 @@ struct Session: Codable, Identifiable, Equatable {
         return .within
     }
 
+    /// 是否为空场：须同时计入静默推测杯数，不能只看 drinks 是否为空，
+    /// 否则整场未点记录、全靠推测的场次（可能已越线）会被误判为空场。
+    var isEmptyRecord: Bool {
+        outcome(at: endedAt ?? Date()) == .empty
+    }
+
     var overtimeMinutes: Int {
         max(0, Int(duration - plannedSeconds) / 60)
     }
@@ -831,34 +832,9 @@ struct Plan: Equatable, Identifiable, Sendable {
         "\(Format.units(softLimit)) 标准杯 · \(Format.minutes(plannedMinutes))"
     }
 
+    /// 方案卡展示文案。必须由 softLimit 实际换算，保证卡片上的线与提醒/表盘使用的线一致。
     func displayDetail(for category: BeverageCategory) -> String {
-        switch id {
-        case Plan.light.id:
-            switch category {
-            case .baijiu:
-                return "3 两 · \(Format.minutes(plannedMinutes))"
-            case .beer:
-                return "4 听 · \(Format.minutes(plannedMinutes))"
-            case .wine:
-                return "4 杯 · \(Format.minutes(plannedMinutes))"
-            case .custom:
-                return "约 4.5 标准杯 · \(Format.minutes(plannedMinutes))"
-            }
-        case Plan.dinner.id:
-            switch category {
-            case .baijiu:
-                return "6 两 · \(Format.minutes(plannedMinutes))"
-            case .beer:
-                return "7 听 · \(Format.minutes(plannedMinutes))"
-            case .wine:
-                return "8 杯 · \(Format.minutes(plannedMinutes))"
-            case .custom:
-                return "约 9 标准杯 · \(Format.minutes(plannedMinutes))"
-            }
-        default:
-            let physical = category.formatPhysical(from: softLimit)
-            return "\(physical) · \(Format.minutes(plannedMinutes))"
-        }
+        "\(category.formatPhysical(from: softLimit)) · \(Format.minutes(plannedMinutes))"
     }
 
     static let light = Plan(
@@ -1086,6 +1062,44 @@ enum PaceChecks {
         assert(snapOver.intensity == .over, "超出硬限应为 over")
         assert(snapOver.cue == .over, "Cue 应为 over")
         assert(Pace.gap(for: snapOver.intensity, session: session) == 10 * 60, "越线后提醒间隔应为 10 分钟")
+
+        // 5. 方案卡展示的建议线必须与实际 softLimit 换算一致
+        for plan in [Plan.light, Plan.dinner] {
+            for cat in BeverageCategory.allCases {
+                let expected = cat.formatPhysical(from: plan.softLimit)
+                assert(plan.displayDetail(for: cat).hasPrefix(expected), "\(plan.name)·\(cat.name) 方案卡应显示 \(expected)")
+            }
+        }
+        assert(Plan.light.displayDetail(for: .beer).hasPrefix("3.5 听"), "小酌啤酒建议线应为 3.5 听")
+
+        // 6. 空场判定须计入静默推测：整场没点记录但有推测杯数的场次不是空场
+        var silent = session
+        silent.drinks = []
+        silent.waters = []
+        silent.prompts = Pace.projectPrompts(silent, now: start)
+        silent.endedAt = start.addingTimeInterval(70 * 60)
+        assert(silent.drinks.isEmpty && silent.units(at: silent.endedAt!) > 0, "静默场次应有推测杯数")
+        assert(!silent.isEmptyRecord, "有推测杯数的静默场次不应被判为空场")
+        var blank = silent
+        blank.endedAt = start.addingTimeInterval(10 * 60)
+        assert(blank.isEmptyRecord, "首次提醒前结束、无记录的场次应为空场")
+
+        // 7. 静默推测按方案节奏：全程不回应时，到预定时长的推测量不应超过建议线，也不应少于一拍以上
+        var quiet = session
+        quiet.drinks = []
+        quiet.waters = []
+        quiet.prompts = Pace.projectPrompts(quiet, now: start)
+        let atPlanned = quiet.units(at: start.addingTimeInterval(quiet.plannedSeconds))
+        assert(atPlanned <= quiet.softLimit + 0.0001, "静默推测在预定时长内不应超过建议线（实际 \(atPlanned)）")
+        assert(atPlanned >= quiet.softLimit - Pace.estimateRate(quiet) * 30 * 60 - 0.0001, "静默推测不应明显低于方案节奏（实际 \(atPlanned)）")
+
+        // 8. 多条未回应提醒按时间从早到晚逐条校准
+        let t65 = start.addingTimeInterval(65 * 60)
+        let snap65 = Pace.evaluate(quiet, now: t65)
+        let unansweredAt65 = quiet.prompts.filter { $0.at <= t65 }
+        assert(unansweredAt65.count >= 2, "65 分钟时应已有至少 2 条提醒")
+        assert(snap65.pendingCount == unansweredAt65.count, "pendingCount 应等于未回应的过去提醒数")
+        assert(snap65.pendingPrompt?.id == unansweredAt65.min(by: { $0.at < $1.at })?.id, "应先呈现最早一条待校准提醒")
 
         print("✅ PaceChecks: All state machine & projection assertions passed.")
     }

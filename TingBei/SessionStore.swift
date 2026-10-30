@@ -100,6 +100,8 @@ final class SessionStore {
 
     private var clock: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
+    @ObservationIgnored private var rescheduleTask: Task<Void, Never>?
+    @ObservationIgnored private var liveActivityTask: Task<Void, Never>?
     @ObservationIgnored private var audioPlayer: AVAudioPlayer?
     @ObservationIgnored private var lastLiveActivityState: TingBeiAttributes.ContentState?
 
@@ -467,7 +469,7 @@ final class SessionStore {
     }
 
     func clearEmptyHistory() {
-        history.removeAll { $0.drinks.isEmpty }
+        history.removeAll { $0.isEmptyRecord }
         persist()
     }
 
@@ -528,7 +530,13 @@ final class SessionStore {
 
     func reschedule() {
         let center = UNUserNotificationCenter.current()
-        Task {
+        let previous = rescheduleTask
+        previous?.cancel()
+        rescheduleTask = Task {
+            // 串行化：等上一轮彻底结束再读取待发列表。否则旧任务在本轮读取之后才 add 的过期提醒
+            // 不在本轮删除名单里，会变成无人清理的孤儿通知。
+            await previous?.value
+            guard !Task.isCancelled else { return }
             let pending = await center.pendingNotificationRequests()
             let sessionIDs = pending.map(\.identifier).filter { !$0.hasPrefix("tingbei.test.") }
             if !sessionIDs.isEmpty {
@@ -541,6 +549,8 @@ final class SessionStore {
             var overCounter = 0
 
             for prompt in upcoming.prefix(Pace.promptBudget) {
+                // 已被新一轮取代时停止补加；残留部分由下一轮读取待发列表后统一删除
+                if Task.isCancelled { return }
                 let content = UNMutableNotificationContent()
                 if prompt.level == .over {
                     overCounter += 1
@@ -635,25 +645,20 @@ final class SessionStore {
         UNUserNotificationCenter.current().setNotificationCategories([category])
     }
 
-    func handleNotificationAction(actionIdentifier: String, userInfo: [AnyHashable: Any]) {
-        if actionIdentifier == NotificationActionID.stop {
-            end()
-            return
-        }
-
-        guard let promptIDString = userInfo["promptID"] as? String,
-              let promptID = UUID(uuidString: promptIDString) else {
-            return
-        }
-
+    /// 处理通知按钮。锁屏点按时 App 只在后台被短暂唤醒，回调返回后进程可能立即被挂起，
+    /// 因此须等重新排期写入通知中心、实时活动更新送达后再返回，否则会残留过期提醒、锁屏卡片停在旧数值。
+    func handleNotificationAction(actionIdentifier: String, promptIDString: String?) async {
         switch actionIdentifier {
-        case NotificationActionID.drank:
-            handlePromptReply(promptID: promptID, reply: .drank)
-        case NotificationActionID.skipped:
-            handlePromptReply(promptID: promptID, reply: .skipped)
+        case NotificationActionID.stop:
+            end()
+        case NotificationActionID.drank, NotificationActionID.skipped:
+            guard let promptIDString, let promptID = UUID(uuidString: promptIDString) else { return }
+            handlePromptReply(promptID: promptID, reply: actionIdentifier == NotificationActionID.drank ? .drank : .skipped)
         default:
-            break
+            return
         }
+        await rescheduleTask?.value
+        await liveActivityTask?.value
     }
 
     func requestNotificationsThenSchedule() async {
@@ -699,6 +704,8 @@ final class SessionStore {
         let center = UNUserNotificationCenter.current()
         center.removeAllPendingNotificationRequests()
         center.removeAllDeliveredNotifications()
+        // 进行中的重新排期可能仍在补加提醒；追加一轮串行清理（此时 active 已为 nil，只删不加）
+        reschedule()
     }
 
     // MARK: - Live Activity & 灵动岛管理
@@ -734,14 +741,29 @@ final class SessionStore {
         lastLiveActivityState = state
         let staleDate = snap.nextPrompt?.at
 
-        Task {
-            await clearAllActivities()
-            let attributes = TingBeiAttributes(startedAt: session.startedAt, planName: session.planName)
-            _ = try? Activity.request(
-                attributes: attributes,
-                content: .init(state: state, staleDate: staleDate),
-                pushType: nil
-            )
+        enqueueLiveActivity {
+            await self.requestLiveActivity(session: session, state: state, staleDate: staleDate)
+        }
+    }
+
+    private func requestLiveActivity(session: Session, state: TingBeiAttributes.ContentState, staleDate: Date?) async {
+        await clearAllActivities()
+        let attributes = TingBeiAttributes(startedAt: session.startedAt, planName: session.planName)
+        _ = try? Activity.request(
+            attributes: attributes,
+            content: .init(state: state, staleDate: staleDate),
+            pushType: nil
+        )
+    }
+
+    /// 串行执行实时活动的启动 / 更新 / 结束，并保留最后一个任务句柄：
+    /// 一是避免并发的 end 与 request 交错；二是后台处理通知按钮时可等待其完成，
+    /// 否则进程被挂起后锁屏卡片会停留在旧数值。
+    private func enqueueLiveActivity(_ operation: @escaping @MainActor () async -> Void) {
+        let previous = liveActivityTask
+        liveActivityTask = Task {
+            await previous?.value
+            await operation()
         }
     }
 
@@ -754,23 +776,24 @@ final class SessionStore {
         lastLiveActivityState = state
         let staleDate = snap.nextPrompt?.at
 
-        Task {
+        enqueueLiveActivity {
             let activities = Activity<TingBeiAttributes>.activities
             if !activities.isEmpty {
                 let content = ActivityContent(state: state, staleDate: staleDate)
                 for act in activities {
                     await act.update(content)
                 }
-            } else if active != nil {
-                startLiveActivity(session: session, snap: snap)
+            } else if self.active != nil {
+                // 直接在本任务内重建，而不是再排一个任务，保证等待者等到的是完整结果
+                await self.requestLiveActivity(session: session, state: state, staleDate: staleDate)
             }
         }
     }
 
     private func endLiveActivity() {
         lastLiveActivityState = nil
-        Task {
-            await clearAllActivities()
+        enqueueLiveActivity {
+            await self.clearAllActivities()
         }
     }
 

@@ -95,11 +95,12 @@ stateDiagram-v2
   - 盘中支持一键确认「喝了 / 还没喝」以校准静默推测；底部 `+1` 支持长按瞬间快记。
 - **通俗物理量与客观标准杯双轨度量**：
   - 支持按**啤酒（听）、白酒（两）、红酒（杯）、混饮（标准杯）**通俗计量，底层自动按 WHO 标准杯（14g 纯乙醇）精准折算。
-  - 内置经典方案：**小酌**（白酒 3 两 / 啤酒 5 听 / 红酒 4 杯 · 2 小时）、**聚餐**（白酒 6 两 / 啤酒 10 听 / 红酒 8 杯 · 3.5 小时）及整数物理单位步进自定义。
+  - 内置经典方案：**小酌**（白酒 3 两 / 啤酒 3.5 听 / 红酒 4.2 杯 · 2 小时）、**聚餐**（白酒 6 两 / 啤酒 7 听 / 红酒 8.4 杯 · 3.5 小时）及整数物理单位步进自定义。
 - **纯粹黑金腕表仪表盘**：
   - 外圈流逝时间细线，内圈实虚结合杯量弧线与软限刻度小点，中央经典衬线体大数字。
 - **局域网静默无线续签**：
   - 内置 `renew.sh`，支持在局域网内无线将应用（主 App + 小组件扩展）静默更新至真机，永不掉签。
+  - Telegram 推送所需的 Bot 令牌与 Chat ID 放在项目根目录的 `.renew.env`（已被 git 忽略）；首次使用时复制 `.renew.env.example` 为 `.renew.env` 后填写。未配置时只跳过推送，不影响续签。
 
 ---
 
@@ -112,7 +113,13 @@ TingBei/
 │   ├── TingBeiAttributes.swift   # ActivityKit 灵动岛与实时活动共享数据模型
 │   ├── Pace.swift                # 核心业务算法：标准杯折算、预排推演、状态机与单元自检
 │   ├── SessionStore.swift        # 全局状态管理：@Observable 驱动、时效性通知排期、Live Activity 生命周期
-│   ├── Views.swift               # 界面层：黑金腕表双环表盘、三元控制组、回溯补记面板、复盘页面
+│   ├── ThemePalette.swift        # 六款主题配色表（App 与小组件共享）
+│   ├── Theme.swift               # 当前主题状态与派生色
+│   ├── Views.swift               # 根视图与环境氛围背景
+│   ├── HomeView.swift            # 首页：选酒、方案、开席、主题与设置入口、席间手账
+│   ├── SessionView.swift         # 会话页：腕表表盘、朱砂印章、状态卡与底部操作区
+│   ├── Sheets.swift              # 抽屉与弹窗：补记、时间轴、复盘（含节奏曲线）、声律设置、主题雅集
+│   ├── Components.swift          # 通用组件：方案卡、手账行、朱砂印章等
 │   └── Assets.xcassets           # 配色与矢量资源
 ├── TingBeiWidgets/
 │   ├── TingBeiWidgets.swift      # 灵动岛（紧凑态/展开态）与锁屏实时活动 WidgetKit 实现
@@ -120,6 +127,7 @@ TingBei/
 ├── TingBei.xcodeproj             # Xcode 工程配置（包含主 App 与 Widget 扩展）
 ├── Info.plist                    # 主应用配置（开启 NSSupportsLiveActivities 与 URL Schemes）
 ├── renew.sh                      # 局域网自动化增量编译、签名打包与无线推送脚本
+├── .renew.env.example            # 续签脚本本地密钥配置模板（真实值放 .renew.env，不入库）
 └── README.md                     # 项目说明文档
 ```
 

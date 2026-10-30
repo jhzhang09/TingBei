@@ -5,15 +5,13 @@ import UIKit
 @main
 struct TingBeiApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var store = SessionStore()
+
+    private var store: SessionStore { appDelegate.store }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(store)
-                .onAppear {
-                    appDelegate.store = store
-                }
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -35,8 +33,11 @@ struct TingBeiApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    weak var store: SessionStore?
+    /// 由 AppDelegate 持有：锁屏点通知按钮冷启动时只在后台运行、不会创建窗口，
+    /// 若等 RootView.onAppear 再注入，回调到达时 store 仍为空，操作会被静默丢弃。
+    let store = SessionStore()
 
     func application(
         _ application: UIApplication,
@@ -51,7 +52,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         await MainActor.run {
-            store?.tick()
+            store.tick()
         }
         return [.banner, .sound, .list]
     }
@@ -61,9 +62,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse
     ) async {
         let actionIdentifier = response.actionIdentifier
-        let userInfo = response.notification.request.content.userInfo
-        await MainActor.run {
-            store?.handleNotificationAction(actionIdentifier: actionIdentifier, userInfo: userInfo)
-        }
+        // 先在当前上下文取出可跨 actor 传递的 String，避免把非 Sendable 的 userInfo 带到主线程
+        let promptIDString = response.notification.request.content.userInfo["promptID"] as? String
+        await store.handleNotificationAction(actionIdentifier: actionIdentifier, promptIDString: promptIDString)
     }
 }
