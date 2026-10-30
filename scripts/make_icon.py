@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """生成停杯 App 图标（1024×1024）。
 
-设计：玄漆描金主题——乌黑漆地、泥金表盘刻度与节奏弧、描金高足酒盏，
-右下钤一方朱砂「停」字印。
+设计：玄漆描金主题——乌黑漆地、泥金表盘刻度与节奏弧、白瓷小酒盅，
+右下钤一方汉印篆白文「停」字朱砂印（字形见 seal.py，不依赖字体）。
 
-用法：python3 scripts/make_icon.py <思源宋体/Noto Serif SC Black 字体路径> [输出路径]
+用法：python3 scripts/make_icon.py [输出路径]
 """
 import math
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter
+
+from seal import render_seal
 
 S = 4096  # 超采样画布，最后缩到 1024
 OUT = 1024
@@ -21,7 +23,9 @@ GOLD_BRIGHT = (230, 198, 144)   # 描金高光 #E6C690
 GOLD_DEEP = (150, 116, 70)
 CINNABAR = (198, 59, 52)        # 朱漆 #C63B34
 IVORY = (241, 234, 224)         # 象牙白 #F1EAE0
-AMBER = (217, 154, 85)          # 琥珀 #D99A55
+PORCELAIN = (246, 241, 230)     # 白瓷
+PORCELAIN_SHADOW = (196, 186, 168)
+LIQUOR = (214, 226, 224)        # 清酒
 
 
 def lerp(a, b, t):
@@ -92,105 +96,87 @@ def pace_arc(img, cx, cy):
 
 
 def cup(img, cx, cy):
-    """描金高足酒盏（宋式斗笠盏轮廓），盏中琥珀酒色。"""
+    """白瓷小酒盅：微撇口、斜直腹、矮圈足，口沿描金一线，盏中清冽白酒。"""
     layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    mouth_w = S * 0.300
-    mouth_h = S * 0.050
-    top = cy - S * 0.080
-    bowl_bottom = cy + S * 0.075
-    # 盏身：口沿到盏底的弧形收分
+    mouth_w = S * 0.230
+    mouth_h = S * 0.044
+    top = cy - S * 0.085
+    belly_bottom = cy + S * 0.100
+    foot_w = S * 0.082
+    foot_bottom = cy + S * 0.122
+
+    # 盏身轮廓：口沿微撇，腹壁近直斜收，近足处圆转
     pts = []
-    n = 80
+    n = 90
     for i in range(n + 1):
         t = i / n
-        y = top + (bowl_bottom - top) * t
-        half = mouth_w / 2 * (1 - t ** 1.6 * 0.86)
+        y = top + (belly_bottom - top) * t
+        half = foot_w / 2 + (mouth_w / 2 - foot_w / 2) * (1 - t ** 1.25) ** 1.15
         pts.append((cx + half, y))
-    pts += [(cx - x + cx, y) for x, y in reversed(pts)]
-    # 竖向描金渐变
-    grad = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(grad)
-    y0, y1 = int(top), int(cy + S * 0.20)
-    for y in range(y0, y1):
-        t = (y - y0) / (y1 - y0)
-        gd.line([(0, y), (S, y)], fill=(*lerp(GOLD_BRIGHT, GOLD_DEEP, t), 255))
+    pts.append((cx + foot_w * 0.47, belly_bottom))
+    pts.append((cx + foot_w * 0.52, foot_bottom))
+    pts.append((cx - foot_w * 0.52, foot_bottom))
+    pts.append((cx - foot_w * 0.47, belly_bottom))
+    pts += [(2 * cx - x, y) for x, y in reversed(pts[: n + 1])]
     mask = Image.new("L", (S, S), 0)
-    md = ImageDraw.Draw(mask)
-    md.polygon(pts, fill=255)
-    # 高足与圈足
-    stem_w = S * 0.030
-    stem_top = bowl_bottom - S * 0.010
-    stem_bottom = cy + S * 0.150
-    md.rectangle([cx - stem_w / 2, stem_top, cx + stem_w / 2, stem_bottom], fill=255)
-    md.polygon(
-        [(cx - stem_w / 2, stem_bottom - S * 0.012), (cx + stem_w / 2, stem_bottom - S * 0.012),
-         (cx + S * 0.075, stem_bottom + S * 0.022), (cx - S * 0.075, stem_bottom + S * 0.022)],
-        fill=255,
-    )
-    md.ellipse([cx - S * 0.080, stem_bottom + S * 0.008, cx + S * 0.080, stem_bottom + S * 0.036], fill=255)
-    layer.paste(grad, (0, 0), mask)
+    ImageDraw.Draw(mask).polygon(pts, fill=255)
+
+    # 白瓷釉面：左侧受光、右侧渐暗
+    glaze = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glaze)
+    x0, x1 = int(cx - mouth_w / 2), int(cx + mouth_w / 2)
+    for x in range(x0, x1):
+        t = (x - x0) / (x1 - x0)
+        shade = 1 - 0.55 * max(0, t - 0.38) ** 1.1 - 0.35 * max(0, 0.12 - t)
+        gd.line([(x, 0), (x, S)], fill=(*lerp(PORCELAIN_SHADOW, PORCELAIN, max(0, min(1, shade))), 255))
+    # 近足处釉色稍沉
+    dusk = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(dusk)
+    y0 = belly_bottom - S * 0.05
+    for y in range(int(y0), int(foot_bottom) + 1):
+        t = (y - y0) / (foot_bottom - y0)
+        dd.line([(x0, y), (x1, y)], fill=(0, 0, 0, int(80 * t)))
+    glaze.alpha_composite(dusk)
+    layer.paste(glaze, (0, 0), mask)
     d = ImageDraw.Draw(layer)
-    # 口沿：外圈描金，内为漆黑盏心，盏心盛琥珀酒
+    # 足墙一线描金
+    d.line([(cx - foot_w * 0.47, belly_bottom), (cx + foot_w * 0.47, belly_bottom)], fill=(*GOLD, 255), width=int(S * 0.004))
+
+    # 口沿：描金外圈，内壁白瓷，盛清酒
     d.ellipse([cx - mouth_w / 2, top - mouth_h / 2, cx + mouth_w / 2, top + mouth_h / 2], fill=(*GOLD_BRIGHT, 255))
-    rim = S * 0.010
+    rim = S * 0.006
     d.ellipse([cx - mouth_w / 2 + rim, top - mouth_h / 2 + rim * 0.6, cx + mouth_w / 2 - rim, top + mouth_h / 2 - rim * 0.6],
-              fill=(*LACQUER_EDGE, 255))
-    lw, lh = mouth_w * 0.80, mouth_h * 0.62
+              fill=(*PORCELAIN, 255))
+    lw, lh = mouth_w * 0.84, mouth_h * 0.62
     ly = top + mouth_h * 0.10
-    d.ellipse([cx - lw / 2, ly - lh / 2, cx + lw / 2, ly + lh / 2], fill=(*AMBER, 255))
-    # 酒面一点高光
-    d.ellipse([cx - lw * 0.30, ly - lh * 0.28, cx - lw * 0.06, ly + lh * 0.02], fill=(*lerp(AMBER, IVORY, 0.55), 255))
-    # 投影
+    d.ellipse([cx - lw / 2, ly - lh / 2, cx + lw / 2, ly + lh / 2], fill=(*LIQUOR, 255))
+    d.ellipse([cx - lw * 0.30, ly - lh * 0.26, cx - lw * 0.02, ly + lh * 0.04], fill=(255, 255, 255, 255))
+
     shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.ellipse([cx - S * 0.11, stem_bottom + S * 0.026, cx + S * 0.11, stem_bottom + S * 0.050], fill=(0, 0, 0, 150))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(S * 0.008))
-    img.alpha_composite(shadow)
+    ImageDraw.Draw(shadow).ellipse([cx - S * 0.10, foot_bottom - S * 0.010, cx + S * 0.10, foot_bottom + S * 0.014],
+                                   fill=(0, 0, 0, 170))
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(S * 0.008)))
     img.alpha_composite(layer)
 
 
-def seal(img, font_path, cx, cy):
-    """朱砂方印，白文「停」，略带倾侧与斑驳。"""
-    size = int(S * 0.165)
-    pad = int(size * 0.25)
-    tile = Image.new("RGBA", (size + pad * 2, size + pad * 2), (0, 0, 0, 0))
-    d = ImageDraw.Draw(tile)
-    radius = size * 0.08
-    d.rounded_rectangle([pad, pad, pad + size, pad + size], radius=radius, fill=(*CINNABAR, 255))
-    inner = size * 0.075
-    d.rounded_rectangle([pad + inner, pad + inner, pad + size - inner, pad + size - inner],
-                        radius=radius * 0.6, outline=(*IVORY, 235), width=int(size * 0.022))
-    font = ImageFont.truetype(font_path, int(size * 0.66))
-    bb = d.textbbox((0, 0), "停", font=font)
-    tw, th = bb[2] - bb[0], bb[3] - bb[1]
-    d.text((pad + (size - tw) / 2 - bb[0], pad + (size - th) / 2 - bb[1]), "停", font=font, fill=(*IVORY, 245))
-    # 印泥斑驳：随机擦去少许
-    import random
-    rnd = random.Random(7)
-    wear = Image.new("L", tile.size, 255)
-    wd = ImageDraw.Draw(wear)
-    for _ in range(140):
-        x = rnd.uniform(pad, pad + size)
-        y = rnd.uniform(pad, pad + size)
-        r = rnd.uniform(size * 0.003, size * 0.012)
-        wd.ellipse([x - r, y - r, x + r, y + r], fill=rnd.randint(150, 215))
-    a = tile.getchannel("A")
-    a = Image.composite(a, Image.new("L", tile.size, 0), wear)
-    tile.putalpha(a)
-    tile = tile.rotate(-5, resample=Image.BICUBIC, expand=True)
-    img.alpha_composite(tile, (int(cx - tile.width / 2), int(cy - tile.height / 2)))
+def seal(img, cx, cy):
+    """汉印篆白文「停」字朱砂印，略带倾侧。"""
+    tile = render_seal("停", int(S * 0.175), CINNABAR, paper=IVORY, seed=11)
+    pad = tile.width // 4
+    canvas = Image.new("RGBA", (tile.width + pad * 2,) * 2, (0, 0, 0, 0))
+    canvas.alpha_composite(tile, (pad, pad))
+    canvas = canvas.rotate(-4, resample=Image.BICUBIC)
+    img.alpha_composite(canvas, (int(cx - canvas.width / 2), int(cy - canvas.height / 2)))
 
 
 def main():
-    font_path = sys.argv[1]
-    out = sys.argv[2] if len(sys.argv) > 2 else "TingBei/Assets.xcassets/AppIcon.appiconset/icon.png"
+    out = sys.argv[1] if len(sys.argv) > 1 else "TingBei/Assets.xcassets/AppIcon.appiconset/icon.png"
     img = background().convert("RGBA")
     cx, cy = S / 2, S / 2
     dial(ImageDraw.Draw(img), cx, cy)
     pace_arc(img, cx, cy)
-    cup(img, cx, cy - S * 0.012)
-    seal(img, font_path, S * 0.735, S * 0.735)
+    cup(img, cx, cy - S * 0.010)
+    seal(img, S * 0.735, S * 0.735)
     img.convert("RGB").resize((OUT, OUT), Image.LANCZOS).save(out, optimize=True)
 
 
