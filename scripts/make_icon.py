@@ -54,12 +54,13 @@ def polar(cx, cy, r, deg):
 
 def dial(draw, cx, cy):
     r_out = S * 0.395
-    for i in range(60):
-        deg = i * 6
-        major = i % 5 == 0
-        length = S * (0.040 if major else 0.018)
-        width = int(S * (0.0085 if major else 0.0038))
-        color = GOLD if major else lerp(GOLD, LACQUER_EDGE, 0.45)
+    # 只留 12 道主刻度并加粗：细分刻度缩到主屏尺寸会糊成一圈虚线
+    for i in range(12):
+        deg = i * 30
+        cardinal = i % 3 == 0
+        length = S * (0.052 if cardinal else 0.040)
+        width = int(S * (0.013 if cardinal else 0.010))
+        color = GOLD if cardinal else lerp(GOLD, LACQUER_EDGE, 0.25)
         p1 = polar(cx, cy, r_out, deg)
         p2 = polar(cx, cy, r_out - length, deg)
         draw.line([p1, p2], fill=color, width=width)
@@ -75,7 +76,7 @@ def dial(draw, cx, cy):
 def pace_arc(img, cx, cy):
     """内圈节奏弧：泥金渐入描金，弧端一点朱漆，示意「到此当止」。"""
     r = S * 0.322
-    w = int(S * 0.020)
+    w = int(S * 0.026)
     start, end = 0, 250
     layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
@@ -98,12 +99,13 @@ def pace_arc(img, cx, cy):
 def cup(img, cx, cy):
     """白瓷小酒盅：微撇口、斜直腹、矮圈足，口沿描金一线，盏中清冽白酒。"""
     layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    mouth_w = S * 0.230
-    mouth_h = S * 0.044
-    top = cy - S * 0.085
-    belly_bottom = cy + S * 0.100
-    foot_w = S * 0.082
-    foot_bottom = cy + S * 0.122
+    k = 1.65  # 放大为画面主体：原尺寸只占图标宽度约 23%，主屏上偏小
+    mouth_w = S * 0.230 * k
+    mouth_h = S * 0.044 * k
+    top = cy - S * 0.085 * k
+    belly_bottom = cy + S * 0.100 * k
+    foot_w = S * 0.082 * k
+    foot_bottom = cy + S * 0.122 * k
 
     # 盏身轮廓：口沿微撇，腹壁近直斜收，近足处圆转
     pts = []
@@ -132,7 +134,7 @@ def cup(img, cx, cy):
     # 近足处釉色稍沉
     dusk = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     dd = ImageDraw.Draw(dusk)
-    y0 = belly_bottom - S * 0.05
+    y0 = belly_bottom - S * 0.05 * k
     for y in range(int(y0), int(foot_bottom) + 1):
         t = (y - y0) / (foot_bottom - y0)
         dd.line([(x0, y), (x1, y)], fill=(0, 0, 0, int(80 * t)))
@@ -140,11 +142,11 @@ def cup(img, cx, cy):
     layer.paste(glaze, (0, 0), mask)
     d = ImageDraw.Draw(layer)
     # 足墙一线描金
-    d.line([(cx - foot_w * 0.47, belly_bottom), (cx + foot_w * 0.47, belly_bottom)], fill=(*GOLD, 255), width=int(S * 0.004))
+    d.line([(cx - foot_w * 0.47, belly_bottom), (cx + foot_w * 0.47, belly_bottom)], fill=(*GOLD, 255), width=int(S * 0.004 * k))
 
     # 口沿：描金外圈，内壁白瓷，盛清酒
     d.ellipse([cx - mouth_w / 2, top - mouth_h / 2, cx + mouth_w / 2, top + mouth_h / 2], fill=(*GOLD_BRIGHT, 255))
-    rim = S * 0.006
+    rim = S * 0.006 * k
     d.ellipse([cx - mouth_w / 2 + rim, top - mouth_h / 2 + rim * 0.6, cx + mouth_w / 2 - rim, top + mouth_h / 2 - rim * 0.6],
               fill=(*PORCELAIN, 255))
     lw, lh = mouth_w * 0.84, mouth_h * 0.62
@@ -153,15 +155,15 @@ def cup(img, cx, cy):
     d.ellipse([cx - lw * 0.30, ly - lh * 0.26, cx - lw * 0.02, ly + lh * 0.04], fill=(255, 255, 255, 255))
 
     shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).ellipse([cx - S * 0.10, foot_bottom - S * 0.010, cx + S * 0.10, foot_bottom + S * 0.014],
+    ImageDraw.Draw(shadow).ellipse([cx - S * 0.10 * k, foot_bottom - S * 0.010 * k, cx + S * 0.10 * k, foot_bottom + S * 0.014 * k],
                                    fill=(0, 0, 0, 170))
-    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(S * 0.008)))
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(S * 0.008 * k)))
     img.alpha_composite(layer)
 
 
 def seal(img, cx, cy):
     """汉印篆白文「停」字朱砂印，略带倾侧。"""
-    tile = render_seal("停", int(S * 0.175), CINNABAR, paper=IVORY, seed=11)
+    tile = render_seal("停", int(S * 0.25), CINNABAR, paper=IVORY, seed=11)
     pad = tile.width // 4
     canvas = Image.new("RGBA", (tile.width + pad * 2,) * 2, (0, 0, 0, 0))
     canvas.alpha_composite(tile, (pad, pad))
@@ -175,8 +177,8 @@ def main():
     cx, cy = S / 2, S / 2
     dial(ImageDraw.Draw(img), cx, cy)
     pace_arc(img, cx, cy)
-    cup(img, cx, cy - S * 0.010)
-    seal(img, S * 0.735, S * 0.735)
+    cup(img, cx, cy - S * 0.030)
+    seal(img, S * 0.745, S * 0.745)
     img.convert("RGB").resize((OUT, OUT), Image.LANCZOS).save(out, optimize=True)
 
 
