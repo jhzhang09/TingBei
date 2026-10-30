@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.1.0-C8A46E?style=flat-square&labelColor=1A1714" alt="Version" />
+  <img src="https://img.shields.io/badge/version-v2.0.0-C8A46E?style=flat-square&labelColor=1A1714" alt="Version" />
   <a href="https://github.com/jhzhang09/TingBei/actions/workflows/ci.yml"><img src="https://github.com/jhzhang09/TingBei/actions/workflows/ci.yml/badge.svg?branch=main" alt="Build" /></a>
   <img src="https://img.shields.io/badge/iOS-27%2B-C8A46E?style=flat-square&labelColor=1A1714&logo=apple&logoColor=F1EAE0" alt="iOS 27+" />
   <img src="https://img.shields.io/badge/Swift-6-C8A46E?style=flat-square&labelColor=1A1714&logo=swift&logoColor=F1EAE0" alt="Swift 6" />
