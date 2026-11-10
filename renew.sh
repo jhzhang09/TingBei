@@ -74,22 +74,80 @@ fi
 
 log "检测到设备 $DEVICE_NAME 在线，开始增量编译与签名..."
 
-# 2. 若本地描述文件剩余有效期不足 2 天，清理旧缓存以触发向 Apple 申请新 7 天描述文件
+# 2. 检查描述文件有效期；若剩余有效期不足 2 天，尝试安全刷新（带备份与回滚机制）
 PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
-if [ -d "$PROFILES_DIR" ]; then
-    find "$PROFILES_DIR" -name "*.mobileprovision" -mtime +4 -delete 2>/dev/null || true
+REMAINING_DAYS=$(python3 -c "
+import glob, plistlib, subprocess, datetime, os
+profiles_dir = os.path.expanduser('~/Library/Developer/Xcode/UserData/Provisioning Profiles')
+min_days = 999.0
+found = False
+for f in glob.glob(profiles_dir + '/*.mobileprovision'):
+    try:
+        out = subprocess.check_output(['security', 'cms', '-D', '-i', f], stderr=subprocess.DEVNULL)
+        plist = plistlib.loads(out)
+        exp = plist.get('ExpirationDate')
+        if exp:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=datetime.timezone.utc)
+            rem = (exp - now).total_seconds() / 86400.0
+            found = True
+            if rem < min_days:
+                min_days = rem
+    except Exception:
+        pass
+if not found:
+    print('0.0')
+else:
+    print(f'{max(0.0, min_days):.1f}')
+" 2>/dev/null || echo "7.0")
+
+log "当前签名描述文件剩余有效期: ${REMAINING_DAYS} 天"
+
+# 若剩余不足 2 天，尝试清理旧缓存以申请新 7 天证书，失败自动回滚
+BACKUP_DIR=""
+NEEDS_REFRESH=$(python3 -c "print('yes' if float('${REMAINING_DAYS}') <= 2.0 else 'no')" 2>/dev/null || echo "no")
+
+if [ "$NEEDS_REFRESH" = "yes" ] && [ -d "$PROFILES_DIR" ]; then
+    log "描述文件有效期不足 2 天，正在备份并尝试向 Apple 申请全新 7 天证书..."
+    BACKUP_DIR="/tmp/TingBei_Profiles_Backup_$$"
+    mkdir -p "$BACKUP_DIR"
+    cp "$PROFILES_DIR"/*.mobileprovision "$BACKUP_DIR/" 2>/dev/null || true
+    rm -f "$PROFILES_DIR"/*.mobileprovision 2>/dev/null || true
 fi
 
-# 2. 编译并打包应用（使用 generic/platform=iOS 避免无线连接休眠时 xcodebuild 找不到 destination）
-if ! xcodebuild -project "$SCRIPT_DIR/TingBei.xcodeproj" \
-    -scheme TingBei \
-    -destination "generic/platform=iOS" \
-    -allowProvisioningUpdates \
-    build \
-    -quiet; then
-    log "错误：xcodebuild 编译打包失败"
-    notify "停杯 自动续签失败" "xcodebuild 编译失败，请检查开发者证书与签名。"
-    exit 1
+# 编译并打包应用
+build_app() {
+    xcodebuild -project "$SCRIPT_DIR/TingBei.xcodeproj" \
+        -scheme TingBei \
+        -destination "generic/platform=iOS" \
+        -allowProvisioningUpdates \
+        build \
+        -quiet
+}
+
+if ! build_app; then
+    # 若向 Apple 申请新证书失败且有备份，立即回滚备份以保证 App 能继续正常使用
+    if [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+        log "申请全新证书失败，立即回滚旧证书并重试编译..."
+        cp "$BACKUP_DIR"/*.mobileprovision "$PROFILES_DIR/" 2>/dev/null || true
+        rm -rf "$BACKUP_DIR"
+        BACKUP_DIR=""
+        if ! build_app; then
+            log "错误：回滚后编译依然失败"
+            notify "停杯 自动续签失败" "xcodebuild 编译失败，请检查开发者证书与签名。"
+            exit 1
+        fi
+    else
+        log "错误：xcodebuild 编译打包失败"
+        notify "停杯 自动续签失败" "xcodebuild 编译失败，请检查开发者证书与签名。"
+        exit 1
+    fi
+fi
+
+# 编译成功后清理临时备份
+if [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+    rm -rf "$BACKUP_DIR"
 fi
 
 APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -name "TingBei.app" -path "*/Build/Products/Debug-iphoneos/*" ! -path "*/Index.noindex/*" 2>/dev/null | head -n 1)
