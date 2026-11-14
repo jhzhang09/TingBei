@@ -63,6 +63,8 @@ struct HistoryRow: View {
         let totalUnits = session.units(at: end)
         let estimatedUnits = session.estimatedUnits(at: end)
         let estimateTag = estimatedUnits > 0.05 ? " (含推测)" : ""
+        let isMixed = session.isMixedBeverage(at: end)
+        let quantitySummary = isMixed ? session.formattedMixSummary(at: end) : cat.formatPhysical(from: totalUnits)
 
         HStack {
             VStack(alignment: .leading, spacing: 4) {
@@ -72,7 +74,7 @@ struct HistoryRow: View {
                         .foregroundStyle(Theme.cream)
                     Text("·")
                         .foregroundStyle(Theme.mute)
-                    Text(cat.name)
+                    Text(isMixed ? "混饮" : cat.name)
                         .font(.caption)
                         .foregroundStyle(Theme.gold)
                     Text("·")
@@ -83,9 +85,25 @@ struct HistoryRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
-                Text("\(cat.formatPhysical(from: totalUnits))\(estimateTag) · \(Format.units(totalUnits)) 标准杯 · 时长 \(Format.minutes(Int(session.duration / 60)))")
-                    .font(.caption2)
-                    .foregroundStyle(Theme.mute)
+                HStack(spacing: 6) {
+                    Text("\(quantitySummary)\(estimateTag) · \(Format.units(totalUnits)) 标准杯 · \(Format.minutes(Int(session.duration / 60)))")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.mute)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    if let feeling = session.feeling {
+                        HStack(spacing: 3) {
+                            Image(systemName: feeling.icon)
+                                .font(.system(size: 9))
+                            Text(feeling.title)
+                                .font(.system(size: 10))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Theme.surface))
+                        .foregroundStyle(Theme.gold)
+                    }
+                }
             }
             Spacer()
             HStack(spacing: 12) {

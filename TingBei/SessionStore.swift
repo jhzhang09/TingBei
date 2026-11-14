@@ -320,7 +320,8 @@ final class SessionStore {
                 detail: chosenPreset.detail,
                 grams: chosenPreset.grams,
                 at: logTime,
-                createdAt: currentNow
+                createdAt: currentNow,
+                category: chosenPreset.resolvedCategory
             )
         )
 
@@ -351,9 +352,36 @@ final class SessionStore {
         )
     }
 
-    func logCustom(name: String, volumeMl: Double, abv: Double, at customDate: Date? = nil) {
-        let preset = DrinkPreset.custom(name: name, volumeMl: volumeMl, abv: abv)
+    func logCustom(
+        name: String,
+        volumeMl: Double,
+        abv: Double,
+        category: BeverageCategory? = nil,
+        saveToPresets: Bool = false,
+        at customDate: Date? = nil
+    ) {
+        let resolvedCategory = category ?? active?.beverageCategory ?? settings.selectedBeverageCategory
+        let preset = DrinkPreset.custom(name: name, volumeMl: volumeMl, abv: abv, category: resolvedCategory)
+        if saveToPresets {
+            saveDrinkPreset(preset)
+        }
         logDrink(preset: preset, at: customDate)
+    }
+
+    func saveDrinkPreset(_ preset: DrinkPreset) {
+        if let idx = settings.savedPresets.firstIndex(where: { $0.id == preset.id || ($0.name == preset.name && $0.detail == preset.detail) }) {
+            settings.savedPresets[idx] = preset
+        } else {
+            settings.savedPresets.insert(preset, at: 0)
+        }
+        normalizeAndSaveSettings()
+    }
+
+    func deleteSavedPreset(id: String) {
+        settings.savedPresets.removeAll { $0.id == id }
+        normalizeAndSaveSettings()
+        showToast("已从常喝列表移出")
+        triggerHaptic(.soft)
     }
 
     /// 用户回应某次主动提醒："喝了一份" 或 "这段时间没喝"
@@ -376,7 +404,8 @@ final class SessionStore {
                     detail: defaultPreset.detail,
                     grams: defaultPreset.grams,
                     at: session.prompts[idx].at,
-                    createdAt: currentNow
+                    createdAt: currentNow,
+                    category: defaultPreset.resolvedCategory
                 )
             )
             session.prompts[idx].drinkID = drinkID
@@ -609,8 +638,8 @@ final class SessionStore {
         session.lastAnnouncedRank = finalSnap.intensity.rawValue
         session.lastAnnouncedCue = finalSnap.cue
         history.append(session)
-        if history.count > 50 {
-            history.removeFirst(history.count - 50)
+        if history.count > SavedState.maxHistoryCount {
+            history.removeFirst(history.count - SavedState.maxHistoryCount)
         }
         review = session
         active = nil
@@ -636,6 +665,45 @@ final class SessionStore {
     func clearEmptyHistory() {
         history.removeAll { $0.isEmptyRecord }
         persist()
+    }
+
+    func updateSessionReview(sessionID: UUID, feeling: FeelingTag?, note: String?) {
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedNote = (trimmed?.isEmpty == false) ? trimmed : nil
+
+        if let idx = history.firstIndex(where: { $0.id == sessionID }) {
+            history[idx].feeling = feeling
+            history[idx].note = normalizedNote
+            if review?.id == sessionID {
+                review = history[idx]
+            }
+            persist()
+        } else if review?.id == sessionID {
+            review?.feeling = feeling
+            review?.note = normalizedNote
+        }
+    }
+
+    func updateArchivedSession(_ updated: Session) {
+        var session = updated
+        if let end = session.endedAt, end < session.startedAt {
+            session.endedAt = session.startedAt
+        }
+        session.drinks.sort { $0.at < $1.at }
+        session.waters.sort { $0.at < $1.at }
+        if let idx = history.firstIndex(where: { $0.id == session.id }) {
+            history[idx] = session
+            history.sort { $0.startedAt < $1.startedAt }
+        } else {
+            history.append(session)
+            history.sort { $0.startedAt < $1.startedAt }
+        }
+        if review?.id == session.id {
+            review = session
+        }
+        persist()
+        showToast("已更新手帐记录")
+        triggerHaptic(.soft)
     }
 
     func openNotificationSettings() {
@@ -1044,6 +1112,72 @@ final class SessionStore {
         }
     }
 
+    func exportBackupData() throws -> Data {
+        var normalized = settings
+        normalized.normalize()
+        let state = SavedState(
+            schemaVersion: 2,
+            exportedAt: .now,
+            settings: normalized,
+            active: active,
+            history: history
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(state)
+    }
+
+    func decodeBackupData(_ data: Data) throws -> SavedState {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(SavedState.self, from: data)
+    }
+
+    func importBackupState(_ incoming: SavedState, mode: BackupRestoreMode) {
+        let current = SavedState(settings: settings, active: active, history: history)
+        let result = current.merged(with: incoming, mode: mode)
+        let wasActive = active != nil
+
+        settings = result.state.settings
+        history = result.state.history
+        active = result.state.active
+        Theme.apply(settings.selectedTheme)
+        persist()
+        applyIdleTimer()
+
+        if let session = active {
+            armClock()
+            reschedule()
+            let snap = Pace.evaluate(session, now: .now)
+            if wasActive {
+                updateLiveActivity(session: session, snap: snap, force: true)
+            } else {
+                startLiveActivity(session: session, snap: snap)
+            }
+        } else if wasActive {
+            clock?.cancel()
+            endLiveActivity()
+            clearNotifications()
+        }
+
+        switch mode {
+        case .merge:
+            if result.addedHistoryCount == 0 && result.updatedHistoryCount == 0 && result.addedPresetsCount == 0 {
+                showToast("备份内容已在本地，无需重复导入")
+            } else {
+                var parts: [String] = []
+                if result.addedHistoryCount > 0 { parts.append("新增 \(result.addedHistoryCount) 场") }
+                if result.updatedHistoryCount > 0 { parts.append("更新 \(result.updatedHistoryCount) 场") }
+                if result.addedPresetsCount > 0 { parts.append("新增 \(result.addedPresetsCount) 款常喝") }
+                showToast("已合并恢复：" + parts.joined(separator: "、"))
+            }
+        case .replace:
+            showToast("已覆盖恢复 \(result.state.history.count) 场手帐记录")
+        }
+        triggerHaptic(.success)
+    }
+
     private static func load() -> SavedState {
         do {
             let url = try fileURL()
@@ -1105,7 +1239,7 @@ final class SessionStore {
 
     private func drink(_ id: String, at: Date) -> DrinkLog {
         let preset = Pace.presets.first { $0.id == id }!
-        return DrinkLog(id: UUID(), presetID: preset.id, name: preset.name, detail: preset.detail, grams: preset.grams, at: at)
+        return DrinkLog(id: UUID(), presetID: preset.id, name: preset.name, detail: preset.detail, grams: preset.grams, at: at, category: preset.resolvedCategory)
     }
     #endif
 }
@@ -1127,10 +1261,4 @@ private final class BackgroundTaskToken {
         UIApplication.shared.endBackgroundTask(identifier)
         identifier = .invalid
     }
-}
-
-struct SavedState: Codable {
-    var settings = Settings()
-    var active: Session?
-    var history: [Session] = []
 }

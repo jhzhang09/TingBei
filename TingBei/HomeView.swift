@@ -531,12 +531,14 @@ struct HomeView: View {
                         .foregroundStyle(Theme.gold)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("声律与推测")
+                    Text("声律、偏好与备份")
                         .font(.system(size: 15, weight: .medium, design: .serif))
                         .foregroundStyle(Theme.cream)
-                    Text("铃声：\(store.settings.notificationSound.displayName) · \(store.settings.estimateWhenSilent ? "未回应自动推测" : "仅手动记杯")\(store.settings.keepScreenOn ? " · 屏幕常亮" : "")")
+                    Text("铃声：\(store.settings.notificationSound.displayName) · 每周上限 \(Int(round(store.settings.weeklyBudgetUnits))) 杯 · JSON 备份")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.mute)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -599,9 +601,9 @@ struct HomeView: View {
                         showingJournalStats = true
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "chart.bar.xaxis")
+                            Image(systemName: "calendar")
                                 .font(.system(size: 11))
-                            Text("月度概览")
+                            Text("日历与统计")
                                 .font(.caption.weight(.medium))
                         }
                         .foregroundStyle(Theme.gold)

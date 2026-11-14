@@ -12,13 +12,28 @@ enum Pace {
     static let promptBudget = 60
 
     static let presets: [DrinkPreset] = [
-        DrinkPreset(id: "beer500", name: "啤酒", detail: "500 ml", grams: 18),
-        DrinkPreset(id: "beer330", name: "啤酒", detail: "330 ml", grams: 12),
-        DrinkPreset(id: "baijiu", name: "白酒", detail: "一两 · 50 ml", grams: 21),
-        DrinkPreset(id: "wine", name: "红酒", detail: "150 ml", grams: 15),
-        DrinkPreset(id: "huangjiu", name: "黄酒", detail: "100 ml", grams: 12),
-        DrinkPreset(id: "cocktail", name: "鸡尾酒", detail: "一杯", grams: 18),
+        DrinkPreset(id: "beer500", name: "啤酒", detail: "500 ml", grams: 18, category: .beer),
+        DrinkPreset(id: "beer330", name: "啤酒", detail: "330 ml", grams: 12, category: .beer),
+        DrinkPreset(id: "baijiu", name: "白酒", detail: "一两 · 50 ml", grams: 21, category: .baijiu),
+        DrinkPreset(id: "wine", name: "红酒", detail: "150 ml", grams: 15, category: .wine),
+        DrinkPreset(id: "huangjiu", name: "黄酒", detail: "100 ml", grams: 12, category: .custom),
+        DrinkPreset(id: "cocktail", name: "鸡尾酒", detail: "一杯", grams: 18, category: .custom),
     ]
+
+    static func inferredCategory(forPresetID presetID: String, fallback: BeverageCategory) -> BeverageCategory {
+        switch presetID {
+        case "beer500", "beer330":
+            return .beer
+        case "baijiu":
+            return .baijiu
+        case "wine":
+            return .wine
+        case "huangjiu", "cocktail", "generic":
+            return .custom
+        default:
+            return fallback
+        }
+    }
 
     // MARK: - 提醒强度阶梯
 
@@ -671,15 +686,71 @@ struct PaceSnapshot: Equatable {
     var hardLimit: Double
 }
 
-struct DrinkPreset: Identifiable, Equatable, Sendable {
+enum FeelingTag: String, Codable, CaseIterable, Identifiable, Sendable {
+    case fresh = "fresh"
+    case tipsy = "tipsy"
+    case tired = "tired"
+    case dizzy = "dizzy"
+    case rough = "rough"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fresh: "清爽自在"
+        case .tipsy: "恰到微醺"
+        case .tired: "略显疲倦"
+        case .dizzy: "有些上头"
+        case .rough: "次日难受"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .fresh: "sun.max.fill"
+        case .tipsy: "moon.stars.fill"
+        case .tired: "zzz"
+        case .dizzy: "wind"
+        case .rough: "cloud.drizzle.fill"
+        }
+    }
+}
+
+struct DrinkPreset: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var name: String
     var detail: String
     var grams: Double
+    var category: BeverageCategory? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, detail, grams, category
+    }
+
+    init(id: String, name: String, detail: String, grams: Double, category: BeverageCategory? = nil) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+        self.grams = grams
+        self.category = category
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        detail = try c.decode(String.self, forKey: .detail)
+        grams = try c.decode(Double.self, forKey: .grams)
+        category = try c.decodeIfPresent(BeverageCategory.self, forKey: .category)
+    }
 
     var standardDrinks: Double { grams / Pace.gramsPerStandard }
 
-    static func custom(name: String, volumeMl: Double, abv: Double) -> DrinkPreset {
+    var resolvedCategory: BeverageCategory {
+        category ?? Pace.inferredCategory(forPresetID: id, fallback: .custom)
+    }
+
+    static func custom(name: String, volumeMl: Double, abv: Double, category: BeverageCategory? = nil) -> DrinkPreset {
         let grams = volumeMl * (abv / 100.0) * 0.8
         let detail = "\(Int(volumeMl)) ml · \(String(format: "%.1f", abv))%"
         let safeName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -687,7 +758,8 @@ struct DrinkPreset: Identifiable, Equatable, Sendable {
             id: "custom_\(UUID().uuidString.prefix(6))",
             name: safeName.isEmpty ? "自选酒饮" : safeName,
             detail: detail,
-            grams: grams
+            grams: grams,
+            category: category
         )
     }
 }
@@ -701,9 +773,51 @@ struct DrinkLog: Codable, Identifiable, Equatable {
     var at: Date
     /// 记录创建时的真实操作时间，用于回溯补记后「撤销」精准撤回最近一次操作
     var createdAt: Date? = nil
+    /// 所属酒种（用于混合饮酒场次按实际酒种拆分统计）
+    var category: BeverageCategory? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, presetID, name, detail, grams, at, createdAt, category
+    }
+
+    init(
+        id: UUID,
+        presetID: String,
+        name: String,
+        detail: String,
+        grams: Double,
+        at: Date,
+        createdAt: Date? = nil,
+        category: BeverageCategory? = nil
+    ) {
+        self.id = id
+        self.presetID = presetID
+        self.name = name
+        self.detail = detail
+        self.grams = grams
+        self.at = at
+        self.createdAt = createdAt
+        self.category = category
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        presetID = try c.decode(String.self, forKey: .presetID)
+        name = try c.decode(String.self, forKey: .name)
+        detail = try c.decode(String.self, forKey: .detail)
+        grams = try c.decode(Double.self, forKey: .grams)
+        at = try c.decode(Date.self, forKey: .at)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        category = try c.decodeIfPresent(BeverageCategory.self, forKey: .category)
+    }
+
+    func resolvedCategory(fallback: BeverageCategory) -> BeverageCategory {
+        category ?? Pace.inferredCategory(forPresetID: presetID, fallback: fallback)
+    }
 
     var preset: DrinkPreset {
-        DrinkPreset(id: presetID, name: name, detail: detail, grams: grams)
+        DrinkPreset(id: presetID, name: name, detail: detail, grams: grams, category: category)
     }
 }
 
@@ -711,6 +825,18 @@ struct WaterLog: Codable, Identifiable, Equatable {
     var id: UUID
     var at: Date
     var createdAt: Date? = nil
+}
+
+struct BeverageBreakdownItem: Identifiable, Equatable {
+    var id: String { category.id }
+    var category: BeverageCategory
+    var drinkCount: Int
+    var confirmedGrams: Double
+    var estimatedGrams: Double
+
+    var totalGrams: Double { confirmedGrams + estimatedGrams }
+    var confirmedUnits: Double { confirmedGrams / Pace.gramsPerStandard }
+    var totalUnits: Double { totalGrams / Pace.gramsPerStandard }
 }
 
 struct Session: Codable, Identifiable, Equatable {
@@ -729,11 +855,13 @@ struct Session: Codable, Identifiable, Equatable {
     var prompts: [Prompt] = []
     var lastAnnouncedRank: Int
     var lastAnnouncedCue: Cue? = nil
+    var feeling: FeelingTag? = nil
+    var note: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, startedAt, endedAt, planName, beverageCategory, plannedMinutes, softLimit, hardLimit
         case minIntervalMinutes, estimateWhenSilent, drinks, waters, prompts
-        case lastAnnouncedRank, lastAnnouncedCue
+        case lastAnnouncedRank, lastAnnouncedCue, feeling, note
     }
 
     var plannedSeconds: TimeInterval { TimeInterval(max(plannedMinutes, 1) * 60) }
@@ -753,6 +881,60 @@ struct Session: Codable, Identifiable, Equatable {
 
     func units(at time: Date) -> Double {
         confirmedUnits(at: time) + estimatedUnits(at: time)
+    }
+
+    func beverageBreakdown(at time: Date? = nil, includeEstimated: Bool = true) -> [BeverageBreakdownItem] {
+        let cutoff = time ?? endedAt ?? Date.distantFuture
+        let relevantDrinks = drinks.filter { $0.at <= cutoff }
+        var buckets: [BeverageCategory: (count: Int, confirmedGrams: Double, estimatedGrams: Double)] = [:]
+
+        for drink in relevantDrinks {
+            let cat = drink.resolvedCategory(fallback: beverageCategory)
+            var entry = buckets[cat] ?? (0, 0, 0)
+            entry.count += 1
+            entry.confirmedGrams += drink.grams
+            buckets[cat] = entry
+        }
+
+        if includeEstimated {
+            let est = estimatedUnits(at: cutoff)
+            if est > 0.001 {
+                var entry = buckets[beverageCategory] ?? (0, 0, 0)
+                entry.estimatedGrams += est * Pace.gramsPerStandard
+                buckets[beverageCategory] = entry
+            }
+        }
+
+        return buckets
+            .map { key, value in
+                BeverageBreakdownItem(
+                    category: key,
+                    drinkCount: value.count,
+                    confirmedGrams: value.confirmedGrams,
+                    estimatedGrams: value.estimatedGrams
+                )
+            }
+            .sorted { lhs, rhs in
+                if abs(lhs.totalGrams - rhs.totalGrams) > 0.01 {
+                    return lhs.totalGrams > rhs.totalGrams
+                }
+                return lhs.drinkCount > rhs.drinkCount
+            }
+    }
+
+    func isMixedBeverage(at time: Date? = nil) -> Bool {
+        beverageBreakdown(at: time, includeEstimated: false).count > 1
+    }
+
+    func formattedMixSummary(at time: Date? = nil) -> String {
+        let items = beverageBreakdown(at: time, includeEstimated: false)
+        if items.isEmpty {
+            let end = time ?? endedAt ?? Date()
+            return beverageCategory.formatPhysical(from: units(at: end))
+        }
+        return items.map { item in
+            "\(item.category.name) \(item.category.formatPhysical(from: item.confirmedUnits))"
+        }.joined(separator: " · ")
     }
 
     var duration: TimeInterval {
@@ -811,6 +993,8 @@ extension Session {
         prompts = try c.decodeIfPresent([Prompt].self, forKey: .prompts) ?? []
         lastAnnouncedRank = try c.decodeIfPresent(Int.self, forKey: .lastAnnouncedRank) ?? 0
         lastAnnouncedCue = try c.decodeIfPresent(Cue.self, forKey: .lastAnnouncedCue)
+        feeling = try c.decodeIfPresent(FeelingTag.self, forKey: .feeling)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
     }
 }
 
@@ -893,14 +1077,25 @@ struct Settings: Codable, Equatable {
     var selectedBeverageCategory: BeverageCategory = .baijiu
     var notificationSound: NotificationSoundOption = .glass
     var selectedTheme: AppTheme = .obsidianGold
+    var savedPresets: [DrinkPreset] = []
+    var weeklyBudgetUnits: Double = 14.0
 
     mutating func normalize() {
         plannedMinutes = min(360, max(30, plannedMinutes))
         softLimit = min(20.0, max(1.0, softLimit))
         hardLimit = min(25.0, max(softLimit, hardLimit))
         minIntervalMinutes = min(90, max(10, minIntervalMinutes))
+        weeklyBudgetUnits = min(60.0, max(2.0, weeklyBudgetUnits))
         if ![Plan.light.id, Plan.dinner.id, "custom"].contains(selectedPlanID) {
             selectedPlanID = Plan.light.id
+        }
+        var seenIDs = Set<String>()
+        savedPresets = savedPresets.filter { preset in
+            guard !preset.id.isEmpty, preset.grams > 0 else { return false }
+            return seenIDs.insert(preset.id).inserted
+        }
+        if savedPresets.count > 20 {
+            savedPresets = Array(savedPresets.prefix(20))
         }
     }
 
@@ -951,6 +1146,145 @@ extension Settings {
         selectedBeverageCategory = try c.decodeIfPresent(BeverageCategory.self, forKey: .selectedBeverageCategory) ?? base.selectedBeverageCategory
         notificationSound = try c.decodeIfPresent(NotificationSoundOption.self, forKey: .notificationSound) ?? base.notificationSound
         selectedTheme = try c.decodeIfPresent(AppTheme.self, forKey: .selectedTheme) ?? base.selectedTheme
+        savedPresets = try c.decodeIfPresent([DrinkPreset].self, forKey: .savedPresets) ?? base.savedPresets
+        if let d = try? c.decode(Double.self, forKey: .weeklyBudgetUnits) {
+            weeklyBudgetUnits = d
+        } else {
+            weeklyBudgetUnits = base.weeklyBudgetUnits
+        }
+    }
+}
+
+enum BackupRestoreMode: Equatable, Sendable {
+    case merge
+    case replace
+}
+
+struct BackupImportResult: Equatable {
+    var state: SavedState
+    var addedHistoryCount: Int
+    var updatedHistoryCount: Int
+    var addedPresetsCount: Int
+}
+
+struct SavedState: Codable, Equatable {
+    static let maxHistoryCount = 500
+
+    var schemaVersion: Int = 2
+    var exportedAt: Date? = nil
+    var settings = Settings()
+    var active: Session?
+    var history: [Session] = []
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, exportedAt, settings, active, history
+    }
+
+    init(
+        schemaVersion: Int = 2,
+        exportedAt: Date? = nil,
+        settings: Settings = Settings(),
+        active: Session? = nil,
+        history: [Session] = []
+    ) {
+        self.schemaVersion = schemaVersion
+        self.exportedAt = exportedAt
+        self.settings = settings
+        self.active = active
+        self.history = history
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        exportedAt = try c.decodeIfPresent(Date.self, forKey: .exportedAt)
+        settings = try c.decodeIfPresent(Settings.self, forKey: .settings) ?? Settings()
+        active = try c.decodeIfPresent(Session.self, forKey: .active)
+        history = try c.decodeIfPresent([Session].self, forKey: .history) ?? []
+    }
+
+    func merged(with incoming: SavedState, mode: BackupRestoreMode) -> BackupImportResult {
+        switch mode {
+        case .replace:
+            var next = incoming
+            next.settings.normalize()
+            if next.active?.endedAt != nil {
+                next.active = nil
+            }
+            next.history.sort { $0.startedAt < $1.startedAt }
+            if next.history.count > Self.maxHistoryCount {
+                next.history = Array(next.history.suffix(Self.maxHistoryCount))
+            }
+            return BackupImportResult(
+                state: next,
+                addedHistoryCount: next.history.count,
+                updatedHistoryCount: 0,
+                addedPresetsCount: next.settings.savedPresets.count
+            )
+
+        case .merge:
+            var next = self
+            var historyByID: [UUID: Session] = Dictionary(uniqueKeysWithValues: next.history.map { ($0.id, $0) })
+            var added = 0
+            var updated = 0
+
+            for incomingSession in incoming.history {
+                if let existing = historyByID[incomingSession.id] {
+                    if Self.shouldPrefer(incoming: incomingSession, over: existing) {
+                        historyByID[incomingSession.id] = incomingSession
+                        updated += 1
+                    }
+                } else {
+                    historyByID[incomingSession.id] = incomingSession
+                    added += 1
+                }
+            }
+
+            var mergedHistory = Array(historyByID.values).sorted { $0.startedAt < $1.startedAt }
+            if mergedHistory.count > Self.maxHistoryCount {
+                mergedHistory = Array(mergedHistory.suffix(Self.maxHistoryCount))
+            }
+            next.history = mergedHistory
+
+            let existingPresetIDs = Set(next.settings.savedPresets.map(\.id))
+            var addedPresets = 0
+            for preset in incoming.settings.savedPresets where !existingPresetIDs.contains(preset.id) {
+                next.settings.savedPresets.append(preset)
+                addedPresets += 1
+            }
+            if next.active == nil, let incomingActive = incoming.active, incomingActive.endedAt == nil {
+                next.active = incomingActive
+            }
+            next.settings.normalize()
+            return BackupImportResult(
+                state: next,
+                addedHistoryCount: added,
+                updatedHistoryCount: updated,
+                addedPresetsCount: addedPresets
+            )
+        }
+    }
+
+    private static func shouldPrefer(incoming: Session, over existing: Session) -> Bool {
+        guard incoming != existing else { return false }
+        let incomingScore = completenessScore(of: incoming)
+        let existingScore = completenessScore(of: existing)
+        if incomingScore != existingScore {
+            return incomingScore > existingScore
+        }
+        let incomingEnd = incoming.endedAt ?? incoming.startedAt
+        let existingEnd = existing.endedAt ?? existing.startedAt
+        return incomingEnd > existingEnd
+    }
+
+    private static func completenessScore(of session: Session) -> Int {
+        var score = session.drinks.count * 2 + session.waters.count
+        if session.endedAt != nil { score += 5 }
+        if session.feeling != nil { score += 3 }
+        if let note = session.note, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            score += 3
+        }
+        return score
     }
 }
 
@@ -1004,6 +1338,14 @@ enum Format {
             return "昨天"
         }
         return date.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN")))
+    }
+
+    static func monthTitle(_ date: Date) -> String {
+        date.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN")))
+    }
+
+    static func monthDay(_ date: Date) -> String {
+        date.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN")))
     }
 
     static func sessionTimeRange(start: Date, end: Date) -> String {
@@ -1149,6 +1491,93 @@ enum PaceChecks {
             assert(Double(cat.maxSoftPhysicalCount) * cat.standardUnitsPerUnit <= 20.0 + 0.0001, "\(cat.name) 物理建议线上限不应超过 20 标准杯")
             assert(Double(cat.maxHardPhysicalCount) * cat.standardUnitsPerUnit <= 25.0 + 0.0001, "\(cat.name) 物理警戒线上限不应超过 25 标准杯")
         }
+
+        // 11. 混合酒种单场按实际饮品类别拆分统计
+        let beerPreset = Pace.presets.first { $0.id == "beer500" }!
+        let mixed = Session(
+            id: UUID(),
+            startedAt: start,
+            endedAt: start.addingTimeInterval(90 * 60),
+            planName: "聚餐",
+            beverageCategory: .beer,
+            plannedMinutes: 180,
+            softLimit: 6.0,
+            hardLimit: 9.0,
+            minIntervalMinutes: 25,
+            estimateWhenSilent: false,
+            drinks: [
+                DrinkLog(id: UUID(), presetID: preset.id, name: preset.name, detail: preset.detail, grams: preset.grams, at: start.addingTimeInterval(10 * 60), category: .baijiu),
+                DrinkLog(id: UUID(), presetID: beerPreset.id, name: beerPreset.name, detail: beerPreset.detail, grams: beerPreset.grams, at: start.addingTimeInterval(35 * 60), category: .beer),
+            ],
+            waters: [],
+            prompts: [],
+            lastAnnouncedRank: 0
+        )
+        assert(mixed.isMixedBeverage(), "同时记了白酒和啤酒应判定为混饮")
+        let breakdown = mixed.beverageBreakdown(includeEstimated: false)
+        assert(breakdown.count == 2, "混合酒种拆分应包含 2 个类别")
+        assert(breakdown.first?.category == .baijiu, "克数更高的白酒应排在第一位")
+
+        // 12. Settings.normalize 约束每周参考预算与收藏酒品去重
+        var rawSettings = Settings()
+        rawSettings.weeklyBudgetUnits = 99
+        let dupPreset = DrinkPreset(id: "ipa", name: "精酿 IPA", detail: "473 ml · 6.5%", grams: 24.6, category: .beer)
+        rawSettings.savedPresets = [dupPreset, dupPreset]
+        rawSettings.normalize()
+        assert(rawSettings.weeklyBudgetUnits == 60.0, "每周预算应限制在 60 标准杯以内")
+        assert(rawSettings.savedPresets.count == 1, "重复 ID 的收藏预设应自动去重")
+
+        // 13. SavedState 向后兼容旧版 JSON 并支持体感与随笔字段
+        let legacyJSON = """
+        {
+          "settings": {
+            "plannedMinutes": 120,
+            "softLimit": 4.5,
+            "hardLimit": 6.0,
+            "minIntervalMinutes": 30,
+            "selectedPlanID": "light",
+            "selectedBeverageCategory": "beer"
+          },
+          "history": []
+        }
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedLegacy = try? decoder.decode(SavedState.self, from: legacyJSON)
+        assert(decodedLegacy != nil, "旧版 SavedState JSON 应能平滑解码")
+        assert(decodedLegacy?.settings.weeklyBudgetUnits == 14.0, "缺省每周预算应回退到默认值 14")
+
+        // 14. SavedState 备份去重合并：新增场次、更新带体感的新版本、保留既有场次
+        var s1 = mixed
+        let s2ID = UUID()
+        let s2Older = Session(
+            id: s2ID,
+            startedAt: start.addingTimeInterval(86400),
+            endedAt: start.addingTimeInterval(90000),
+            planName: "小酌",
+            beverageCategory: .wine,
+            plannedMinutes: 120,
+            softLimit: 4.5,
+            hardLimit: 6.0,
+            minIntervalMinutes: 30,
+            estimateWhenSilent: false,
+            drinks: [],
+            waters: [],
+            prompts: [],
+            lastAnnouncedRank: 0
+        )
+        var s2Richer = s2Older
+        s2Richer.feeling = .fresh
+        s2Richer.note = "状态很好"
+        let currentState = SavedState(settings: rawSettings, active: nil, history: [s2Older])
+        let incomingState = SavedState(settings: rawSettings, active: nil, history: [s1, s2Richer])
+        let merged = currentState.merged(with: incomingState, mode: .merge)
+        assert(merged.addedHistoryCount == 1, "合并应新增 1 场缺失手帐")
+        assert(merged.updatedHistoryCount == 1, "合并应更新带体感随笔的那 1 场")
+        assert(merged.state.history.count == 2, "合并后总场次应为 2")
+        assert(merged.state.history.last?.feeling == .fresh, "合并后应保留更丰富的体感标签")
+        s1.feeling = .tipsy
+        assert(s1.feeling == .tipsy)
 
         print("✅ PaceChecks: All state machine & projection assertions passed.")
     }
