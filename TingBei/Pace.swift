@@ -400,6 +400,14 @@ public enum BeverageCategory: String, Codable, CaseIterable, Identifiable, Senda
         }
     }
 
+    public var maxSoftPhysicalCount: Int {
+        max(1, Int(floor(20.0 / standardUnitsPerUnit)))
+    }
+
+    public var maxHardPhysicalCount: Int {
+        max(maxSoftPhysicalCount, Int(floor(25.0 / standardUnitsPerUnit)))
+    }
+
     public func physicalValue(from standardUnits: Double) -> Double {
         standardUnits / standardUnitsPerUnit
     }
@@ -431,6 +439,18 @@ public enum BeverageCategory: String, Codable, CaseIterable, Identifiable, Senda
                 return "\(Int(rounded.rounded())) 标准杯"
             }
             return "\(Format.units(standardUnits)) 标准杯"
+        }
+    }
+
+    /// 灵动岛紧凑态专用的简短物理量文案（如「3.5听」「2杯」），避免窄位截断
+    public func formatCompactPhysical(from standardUnits: Double) -> String {
+        let val = physicalValue(from: standardUnits)
+        let num = Format.units(val)
+        switch self {
+        case .beer: return "\(num)听"
+        case .baijiu: return "\(num)两"
+        case .wine: return "\(num)杯"
+        case .custom: return "\(Format.units(standardUnits))杯"
         }
     }
 }
@@ -679,6 +699,8 @@ struct DrinkLog: Codable, Identifiable, Equatable {
     var detail: String
     var grams: Double
     var at: Date
+    /// 记录创建时的真实操作时间，用于回溯补记后「撤销」精准撤回最近一次操作
+    var createdAt: Date? = nil
 
     var preset: DrinkPreset {
         DrinkPreset(id: presetID, name: name, detail: detail, grams: grams)
@@ -688,6 +710,7 @@ struct DrinkLog: Codable, Identifiable, Equatable {
 struct WaterLog: Codable, Identifiable, Equatable {
     var id: UUID
     var at: Date
+    var createdAt: Date? = nil
 }
 
 struct Session: Codable, Identifiable, Equatable {
@@ -724,7 +747,8 @@ struct Session: Codable, Identifiable, Equatable {
     }
 
     func estimatedUnits(at time: Date) -> Double {
-        prompts.filter { $0.reply == nil && $0.at <= time }.reduce(0) { $0 + $1.estimate }
+        guard estimateWhenSilent else { return 0 }
+        return prompts.filter { $0.reply == nil && $0.at <= time }.reduce(0) { $0 + $1.estimate }
     }
 
     func units(at time: Date) -> Double {
@@ -982,6 +1006,20 @@ enum Format {
         return date.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN")))
     }
 
+    static func sessionTimeRange(start: Date, end: Date) -> String {
+        let calendar = Calendar.current
+        let startStr = shortTime(start)
+        let endStr = shortTime(end)
+        if calendar.isDate(start, inSameDayAs: end) {
+            return "\(startStr)–\(endStr)"
+        }
+        return "\(startStr)–次日 \(endStr)"
+    }
+
+    static func sessionDayAndRange(start: Date, end: Date) -> String {
+        "\(day(start)) \(sessionTimeRange(start: start, end: end))"
+    }
+
     static func until(_ date: Date, now: Date) -> String {
         let minutes = max(1, Int(ceil(date.timeIntervalSince(now) / 60)))
         if minutes < 60 {
@@ -1100,6 +1138,17 @@ enum PaceChecks {
         assert(unansweredAt65.count >= 2, "65 分钟时应已有至少 2 条提醒")
         assert(snap65.pendingCount == unansweredAt65.count, "pendingCount 应等于未回应的过去提醒数")
         assert(snap65.pendingPrompt?.id == unansweredAt65.min(by: { $0.at < $1.at })?.id, "应先呈现最早一条待校准提醒")
+
+        // 9. 关闭静默推测后，未回应提醒不再计入推测杯数
+        var noEst = quiet
+        noEst.estimateWhenSilent = false
+        assert(noEst.estimatedUnits(at: t65) == 0, "关闭静默推测后 estimatedUnits 应为 0")
+
+        // 10. 物理单位上限换算与 Settings.normalize 一致，步进器不会卡死
+        for cat in BeverageCategory.allCases {
+            assert(Double(cat.maxSoftPhysicalCount) * cat.standardUnitsPerUnit <= 20.0 + 0.0001, "\(cat.name) 物理建议线上限不应超过 20 标准杯")
+            assert(Double(cat.maxHardPhysicalCount) * cat.standardUnitsPerUnit <= 25.0 + 0.0001, "\(cat.name) 物理警戒线上限不应超过 25 标准杯")
+        }
 
         print("✅ PaceChecks: All state machine & projection assertions passed.")
     }

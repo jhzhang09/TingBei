@@ -15,6 +15,7 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
         public var elapsedSeconds: TimeInterval
         public var isOver: Bool
         public var physicalText: String?
+        public var compactPhysicalText: String?
         public var physicalSoftLimitText: String?
         public var overCount: Int?
         public var themeID: String?
@@ -32,6 +33,7 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
             elapsedSeconds: TimeInterval,
             isOver: Bool,
             physicalText: String? = nil,
+            compactPhysicalText: String? = nil,
             physicalSoftLimitText: String? = nil,
             overCount: Int? = nil,
             themeID: String? = nil
@@ -48,6 +50,7 @@ public struct TingBeiAttributes: ActivityAttributes, Sendable {
             self.elapsedSeconds = elapsedSeconds
             self.isOver = isOver
             self.physicalText = physicalText
+            self.compactPhysicalText = compactPhysicalText
             self.physicalSoftLimitText = physicalSoftLimitText
             self.overCount = overCount
             self.themeID = themeID

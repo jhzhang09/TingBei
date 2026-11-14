@@ -54,7 +54,7 @@
 
 - **锁屏通知**：长按提醒即可选择「喝了一份 / 还没喝 / 我收杯了」，不必解锁；App 被系统结束后也能处理。
 - **锁屏卡片与灵动岛**：实线为已确认杯数、虚线为推测；下次提醒倒计时到点即显示「待回应」。
-- **快捷动作**：灵动岛展开态可直接「喝了水 / +1 份 / 我收杯了」，通过 `tingbei://` 深链响应。
+- **快捷动作**：灵动岛展开态与锁屏卡片通过 `LiveActivityIntent` 免解锁后台直连「喝了水 / +1 份 / 到线收杯」（常态「我收杯了」经 `tingbei://end` 深链二次确认防误触），同时支持 Siri 语音与「快捷指令」（含 Apple Watch Siri 唤起）。
 
 ---
 
@@ -135,7 +135,7 @@ xcodebuild -project TingBei.xcodeproj -scheme TingBei \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-推送到 `main` 或向 `main` 发起 PR 时，CI 会运行上述两步。
+推送到 `main` 或向 `main` 发起 PR 时，[ci.yml](.github/workflows/ci.yml) 会运行上述两步校验；在 GitHub 发布 Release（或手动触发 [release.yml](.github/workflows/release.yml)）时，会自动打包无签名 `TingBei-<tag>.ipa`（含小组件扩展，可用于 SideStore / AltStore / Sideloadly 等工具自签安装）并上传到对应 Release 附件。
 
 ### 自动续签
 

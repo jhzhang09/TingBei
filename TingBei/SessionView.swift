@@ -7,39 +7,48 @@ struct SessionView: View {
     @State private var showingDrinks = false
     @State private var showingTimeline = false
     @State private var showingThemeGallery = false
+    @State private var showingSessionSettings = false
     @State private var confirmingEnd = false
 
     var body: some View {
         @Bindable var store = store
-        VStack(spacing: 0) {
-            if let snap = store.snapshot, let session = store.active {
-                // 1. 顶部腕表铭牌栏
-                horologyTopBar(snap, session: session)
-                    .padding(.horizontal, 22)
-                    .padding(.top, 8)
+        GeometryReader { geo in
+            // 适配小屏（如 iPhone SE）与放大显示模式，避免表盘挤掉操作区
+            let dialScale = min(1.0, max(0.78, (geo.size.height - 370) / 300))
 
-                Spacer(minLength: 4)
+            VStack(spacing: 0) {
+                if let snap = store.snapshot, let session = store.active {
+                    // 1. 顶部腕表铭牌栏
+                    horologyTopBar(snap, session: session)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
 
-                // 2. 核心同轴机械双轨表盘（Co-Axial Horology Dial）
-                coAxialWatchDial(snap, session: session)
-                    // 自绘表盘对 VoiceOver 合并为一个元素，直接读出当前量、建议线与状态
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("本场饮酒量")
-                    .accessibilityValue("约 \(snap.physicalText)，建议线 \(session.beverageCategory.formatPhysical(from: session.softLimit))，\(snap.title)")
+                    Spacer(minLength: 4)
 
-                Spacer(minLength: 4)
+                    // 2. 核心同轴机械双轨表盘（Co-Axial Horology Dial）
+                    coAxialWatchDial(snap, session: session)
+                        .scaleEffect(dialScale)
+                        .frame(width: 286 * dialScale, height: 286 * dialScale)
+                        // 自绘表盘对 VoiceOver 合并为一个元素，直接读出当前量、建议线与状态
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("本场饮酒量")
+                        .accessibilityValue("约 \(snap.physicalText)，建议线 \(session.beverageCategory.formatPhysical(from: session.softLimit))，\(snap.title)")
 
-                // 3. 动态节律导引与待校准胶囊区
-                rhythmTelemetryCard(snap, session: session)
-                    .padding(.horizontal, 22)
+                    Spacer(minLength: 4)
 
-                Spacer(minLength: 10)
+                    // 3. 动态节律导引与待校准胶囊区
+                    rhythmTelemetryCard(snap, session: session)
+                        .padding(.horizontal, 20)
 
-                // 4. 底部机械表冠级操作船坞（Tactile Crown Dock）
-                tactileCrownDock(snap, session: session)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+                    Spacer(minLength: 8)
+
+                    // 4. 底部机械表冠级操作船坞（Tactile Crown Dock）
+                    tactileCrownDock(snap, session: session)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(isPresented: $showingDrinks) {
             DrinkSheet()
@@ -64,6 +73,13 @@ struct SessionView: View {
                 .presentationBackground(Theme.bg)
                 .preferredColorScheme(Theme.colorScheme)
         }
+        .sheet(isPresented: $showingSessionSettings) {
+            SessionSettingsSheet()
+                .presentationDetents([.fraction(0.75), .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Theme.bg)
+                .preferredColorScheme(Theme.colorScheme)
+        }
         .confirmationDialog(
             "收杯结席？",
             isPresented: Binding(
@@ -82,16 +98,33 @@ struct SessionView: View {
         }
     }
 
-    // 1. 顶部腕表铭牌栏：左场景与酒器切换，右表盘主题切换与流逝时间
+    // 1. 顶部腕表铭牌栏：左场景调整与酒器切换，右表盘主题切换与流逝时间
     private func horologyTopBar(_ snap: PaceSnapshot, session: Session) -> some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 8) {
-                Text(session.planName)
-                    .font(.system(size: 14, weight: .semibold, design: .serif))
-                    .foregroundStyle(Theme.goldBright)
-
-                Text("·")
-                    .foregroundStyle(Theme.mute)
+        HStack(alignment: .center, spacing: 6) {
+            HStack(spacing: 6) {
+                Button {
+                    showingSessionSettings = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(session.planName)
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .foregroundStyle(Theme.goldBright)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.gold)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(Theme.raised)
+                            .overlay(Capsule().stroke(Theme.subtleCardStroke, lineWidth: 0.9))
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("调整本场档位、声律与常亮设置")
 
                 Menu {
                     ForEach(BeverageCategory.allCases) { cat in
@@ -107,11 +140,13 @@ struct SessionView: View {
                             .font(.system(size: 11))
                         Text(session.beverageCategory.name)
                             .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 10, weight: .bold))
                     }
                     .foregroundStyle(Theme.cream)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 9)
                     .padding(.vertical, 5)
                     .background(
                         Capsule()
@@ -121,9 +156,9 @@ struct SessionView: View {
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 // 席间实时换盘按钮
                 Button {
                     showingThemeGallery = true
@@ -135,6 +170,8 @@ struct SessionView: View {
                         Text(store.settings.selectedTheme.name)
                             .font(.system(size: 11, weight: .medium, design: .serif))
                             .foregroundStyle(Theme.cream)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
@@ -147,15 +184,17 @@ struct SessionView: View {
                 .buttonStyle(.plain)
 
                 // 右侧：流逝时长 / 预定时长 精密读数
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.gold)
                     Text("\(Format.hm(snap.elapsed)) / \(Format.hm(snap.planned))")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
                         .foregroundStyle(Theme.cream)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(
                     Capsule()
@@ -237,13 +276,14 @@ struct SessionView: View {
                 .frame(width: 242, height: 242)
                 .animation(.smooth(duration: 0.5), value: timeProgress)
 
-            // 外环游标发光针尖
-            let timeAngle = Angle.degrees(timeProgress * 360 - 90)
+            // 外环游标发光针尖（随进度弧同步沿圆弧旋转）
             Circle()
                 .fill(Theme.goldBright)
                 .frame(width: 6, height: 6)
                 .shadow(color: Theme.goldBright, radius: 4)
-                .offset(x: 121 * cos(timeAngle.radians), y: 121 * sin(timeAngle.radians))
+                .offset(y: -121)
+                .rotationEffect(.degrees(timeProgress * 360))
+                .animation(.smooth(duration: 0.5), value: timeProgress)
 
             // E. 内环：分段式宝石刻度轨（Segmented Horology Ring）
             SegmentedBeverageRing(
@@ -434,7 +474,13 @@ struct SessionView: View {
                         Text("\(Format.shortTime(pending.at)) 节拍询问：喝了吗？")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Theme.cream)
-                        Text(snap.pendingCount > 1 ? "已暂按节奏计入 · 还有 \(snap.pendingCount - 1) 条" : "已暂按节奏计入虚线刻度")
+                        let subtitle: String = {
+                            if !session.estimateWhenSilent {
+                                return snap.pendingCount > 1 ? "还有 \(snap.pendingCount - 1) 条待确认" : "可快捷确认或跳过本轮"
+                            }
+                            return snap.pendingCount > 1 ? "已暂按节奏计入 · 还有 \(snap.pendingCount - 1) 条" : "已暂按节奏计入虚线刻度"
+                        }()
+                        Text(subtitle)
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.mute)
                     }
@@ -766,11 +812,26 @@ struct SegmentedBeverageRing: View {
     let isOverSoft: Bool
     let isOverHard: Bool
 
+    private var segmentMask: some View {
+        ZStack {
+            ForEach(0..<totalSegments, id: \.self) { index in
+                let gap = 0.010
+                let segSpan = 1.0 / Double(totalSegments)
+                let start = Double(index) * segSpan + gap / 2
+                let end = Double(index + 1) * segSpan - gap / 2
+                Circle()
+                    .trim(from: start, to: end)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 9, lineCap: .butt))
+                    .rotationEffect(.degrees(-90))
+            }
+        }
+    }
+
     var body: some View {
         ZStack {
             // 1. 底层分段槽位（安全段 vs 警戒段）
             ForEach(0..<totalSegments, id: \.self) { index in
-                let gap = 0.008
+                let gap = 0.010
                 let segSpan = 1.0 / Double(totalSegments)
                 let start = Double(index) * segSpan + gap / 2
                 let end = Double(index + 1) * segSpan - gap / 2
@@ -785,33 +846,35 @@ struct SegmentedBeverageRing: View {
                     .rotationEffect(.degrees(-90))
             }
 
-            // 2. 静默推测增量弧（呼吸虚线）
-            if totalRatio > confirmedRatio {
-                Circle()
-                    .trim(from: confirmedRatio, to: totalRatio)
-                    .stroke(
-                        isOverSoft ? Theme.wine.opacity(0.75) : Theme.gold.opacity(0.82),
-                        style: StrokeStyle(lineWidth: 7, lineCap: .butt, dash: [5, 4])
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .animation(.smooth(duration: 0.5), value: totalRatio)
-            }
+            // 2. 静默推测增量弧与已确认实心弧统一按分段槽位遮罩，呈现精密腕表宝石刻度质感
+            ZStack {
+                if totalRatio > confirmedRatio {
+                    Circle()
+                        .trim(from: confirmedRatio, to: totalRatio)
+                        .stroke(
+                            isOverSoft ? Theme.wine.opacity(0.75) : Theme.gold.opacity(0.82),
+                            style: StrokeStyle(lineWidth: 7, lineCap: .butt, dash: [5, 4])
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .animation(.smooth(duration: 0.5), value: totalRatio)
+                }
 
-            // 3. 已确认饮酒实心弧（带高光渐变）
-            if confirmedRatio > 0 {
-                Circle()
-                    .trim(from: 0, to: confirmedRatio)
-                    .stroke(
-                        isOverHard
-                            ? LinearGradient(colors: [Theme.gold, Theme.wine], startPoint: .top, endPoint: .bottom)
-                            : (isOverSoft
-                                ? LinearGradient(colors: [Theme.goldBright, Theme.wine.opacity(0.9)], startPoint: .top, endPoint: .bottom)
-                                : Theme.ringSafeGradient),
-                        style: StrokeStyle(lineWidth: 7, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .animation(.smooth(duration: 0.5), value: confirmedRatio)
+                if confirmedRatio > 0 {
+                    Circle()
+                        .trim(from: 0, to: confirmedRatio)
+                        .stroke(
+                            isOverHard
+                                ? LinearGradient(colors: [Theme.gold, Theme.wine], startPoint: .top, endPoint: .bottom)
+                                : (isOverSoft
+                                    ? LinearGradient(colors: [Theme.goldBright, Theme.wine.opacity(0.9)], startPoint: .top, endPoint: .bottom)
+                                    : Theme.ringSafeGradient),
+                            style: StrokeStyle(lineWidth: 7, lineCap: .butt)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .animation(.smooth(duration: 0.5), value: confirmedRatio)
+                }
             }
+            .mask(segmentMask)
         }
     }
 }

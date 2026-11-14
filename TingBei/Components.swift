@@ -77,9 +77,11 @@ struct HistoryRow: View {
                         .foregroundStyle(Theme.gold)
                     Text("·")
                         .foregroundStyle(Theme.mute)
-                    Text(Format.day(session.startedAt))
+                    Text(Format.sessionDayAndRange(start: session.startedAt, end: end))
                         .font(.caption)
                         .foregroundStyle(Theme.mute)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 }
                 Text("\(cat.formatPhysical(from: totalUnits))\(estimateTag) · \(Format.units(totalUnits)) 标准杯 · 时长 \(Format.minutes(Int(session.duration / 60)))")
                     .font(.caption2)

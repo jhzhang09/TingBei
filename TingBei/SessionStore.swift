@@ -85,6 +85,8 @@ struct SignatureStatus: Equatable {
 @MainActor
 @Observable
 final class SessionStore {
+    static let shared = SessionStore()
+
     var settings: Settings
     var active: Session?
     var history: [Session]
@@ -241,15 +243,50 @@ final class SessionStore {
     /// 切换当前酒场的酒种
     func switchBeverageCategory(_ cat: BeverageCategory) {
         guard var session = active else { return }
+        let currentNow = Date.now
+        let before = Pace.evaluate(session, now: currentNow)
         session.beverageCategory = cat
-        updatePrompts(&session, now: .now)
-        active = session
-        let snap = Pace.evaluate(session, now: .now)
-        persist()
-        reschedule()
-        updateLiveActivity(session: session, snap: snap)
-        showToast("已切换为主要饮用：\(cat.name)，按 \(cat.unitName) 计量")
-        triggerHaptic(.soft)
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: "已切换为主要饮用：\(cat.name)，按 \(cat.unitName) 计量",
+            defaultHaptic: .soft
+        )
+    }
+
+    /// 席间动态微调本场建议线、警戒线、预定时长与静默推测开关
+    func updateActiveSession(
+        softLimit: Double,
+        hardLimit: Double,
+        plannedMinutes: Int,
+        estimateWhenSilent: Bool
+    ) {
+        guard var session = active else { return }
+        let currentNow = Date.now
+        let before = Pace.evaluate(session, now: currentNow)
+
+        let clampedMinutes = min(360, max(30, plannedMinutes))
+        let clampedSoft = min(20.0, max(1.0, softLimit))
+        let clampedHard = min(25.0, max(clampedSoft, hardLimit))
+
+        session.softLimit = clampedSoft
+        session.hardLimit = clampedHard
+        session.plannedMinutes = clampedMinutes
+        session.estimateWhenSilent = estimateWhenSilent
+
+        if settings.estimateWhenSilent != estimateWhenSilent {
+            settings.estimateWhenSilent = estimateWhenSilent
+            normalizeAndSaveSettings()
+        }
+
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: "已更新本场节拍线与提醒设定",
+            defaultHaptic: .soft
+        )
     }
 
     func defaultPresetForCurrentSession() -> DrinkPreset {
@@ -269,9 +306,10 @@ final class SessionStore {
     /// 用户在界面或通知上确认：喝了一份。若未指定则自动按当前酒种默认规格记录。
     func logDrink(preset: DrinkPreset? = nil, at customDate: Date? = nil) {
         guard var session = active else { return }
+        let currentNow = Date.now
         let chosenPreset = preset ?? defaultPresetForCurrentSession()
-        let logTime = customDate ?? .now
-        let before = Pace.evaluate(session, now: .now)
+        let logTime = customDate ?? currentNow
+        let before = Pace.evaluate(session, now: currentNow)
 
         let newDrinkID = UUID()
         session.drinks.append(
@@ -281,39 +319,36 @@ final class SessionStore {
                 name: chosenPreset.name,
                 detail: chosenPreset.detail,
                 grams: chosenPreset.grams,
-                at: logTime
+                at: logTime,
+                createdAt: currentNow
             )
         )
 
-        // 仅将最接近当前记录时间的一条未回复提醒标记为已确认（避免一次性吞掉多条历史推测提醒）
-        if let matchIdx = session.prompts.indices
-            .filter({ session.prompts[$0].reply == nil && session.prompts[$0].at <= logTime.addingTimeInterval(5 * 60) })
-            .max(by: { session.prompts[$0].at < session.prompts[$1].at }) {
+        // 若实时记杯且存在积压未回复的节拍询问，优先消去最早一条以与界面「待校准」卡对齐；
+        // 若为回溯补记，则匹配距离补记时间最近的一条未回复提醒。
+        let candidates = session.prompts.indices.filter {
+            session.prompts[$0].reply == nil && session.prompts[$0].at <= logTime.addingTimeInterval(5 * 60)
+        }
+        let matchIdx: Int?
+        if customDate == nil {
+            matchIdx = candidates.min(by: { session.prompts[$0].at < session.prompts[$1].at })
+        } else {
+            matchIdx = candidates.min(by: {
+                abs(session.prompts[$0].at.timeIntervalSince(logTime)) < abs(session.prompts[$1].at.timeIntervalSince(logTime))
+            })
+        }
+        if let matchIdx {
             session.prompts[matchIdx].reply = .logged
             session.prompts[matchIdx].drinkID = newDrinkID
         }
 
-        // 刷新未来的提醒时间表
-        updatePrompts(&session, now: .now)
-
-        let after = Pace.evaluate(session, now: .now)
-        session.lastAnnouncedRank = after.intensity.rawValue
-        session.lastAnnouncedCue = after.cue
-        active = session
-        now = .now
-        bannerPulse += 1
-        persist()
-        reschedule()
-        updateLiveActivity(session: session, snap: after, force: true)
-        showToast("已记录：\(chosenPreset.name)（\(chosenPreset.detail)）")
-
-        if after.cue == .over {
-            triggerHaptic(.stop)
-        } else if after.intensity > before.intensity || after.cue == .hurried {
-            triggerHaptic(.warning)
-        } else {
-            triggerHaptic(.tap)
-        }
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: "已记录：\(chosenPreset.name)（\(chosenPreset.detail)）",
+            defaultHaptic: .tap
+        )
     }
 
     func logCustom(name: String, volumeMl: Double, abv: Double, at customDate: Date? = nil) {
@@ -325,8 +360,11 @@ final class SessionStore {
     func handlePromptReply(promptID: UUID, reply: PromptReply) {
         guard var session = active else { return }
         guard let idx = session.prompts.firstIndex(where: { $0.id == promptID }) else { return }
+        let currentNow = Date.now
+        let before = Pace.evaluate(session, now: currentNow)
 
         session.prompts[idx].reply = reply
+        let toastText: String?
         if reply == .drank {
             let defaultPreset = defaultPresetForCurrentSession()
             let drinkID = UUID()
@@ -337,54 +375,70 @@ final class SessionStore {
                     name: defaultPreset.name,
                     detail: defaultPreset.detail,
                     grams: defaultPreset.grams,
-                    at: session.prompts[idx].at
+                    at: session.prompts[idx].at,
+                    createdAt: currentNow
                 )
             )
             session.prompts[idx].drinkID = drinkID
-            showToast("已确认：\(defaultPreset.name)")
+            toastText = "已确认：\(defaultPreset.name)"
         } else if reply == .skipped {
-            showToast("已消除本轮推测，节拍已校准")
+            toastText = "已消除本轮推测，节拍已校准"
+        } else {
+            toastText = nil
         }
 
-        updatePrompts(&session, now: .now)
-        active = session
-        now = .now
-        bannerPulse += 1
-        persist()
-        reschedule()
-        updateLiveActivity(session: session, snap: Pace.evaluate(session, now: .now), force: true)
-        triggerHaptic(.soft)
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: toastText,
+            defaultHaptic: .soft
+        )
     }
 
     func logWater() {
         guard var session = active else { return }
-        let before = Pace.evaluate(session, now: .now)
-        session.waters.append(WaterLog(id: UUID(), at: .now))
-        active = session
-        let after = Pace.evaluate(session, now: .now)
-        persist()
-        if before.isTooFast && !after.isTooFast {
-            showToast("💧 已喝水缓冲，急饮警示已解除")
+        let currentNow = Date.now
+        let before = Pace.evaluate(session, now: currentNow)
+        session.waters.append(WaterLog(id: UUID(), at: currentNow, createdAt: currentNow))
+
+        let afterPreview = Pace.evaluate(session, now: currentNow)
+        let toastText: String
+        if before.isTooFast && !afterPreview.isTooFast {
+            toastText = "💧 已喝水缓冲，急饮警示已解除"
         } else if before.isTooFast {
-            showToast("💧 已折抵 5 分钟急饮冷却，请继续慢饮")
+            toastText = "💧 已折抵 5 分钟急饮冷却，请继续慢饮"
         } else {
-            showToast("💧 喝了一杯水，水酒平衡 \(after.waterCount):\(max(1, after.drinkCount))")
+            toastText = "💧 喝了一杯水，水酒平衡 \(afterPreview.waterCount):\(max(1, afterPreview.drinkCount))"
         }
-        updateLiveActivity(session: session, snap: after, force: true)
-        triggerHaptic(.soft)
+
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: toastText,
+            defaultHaptic: .soft,
+            needsReschedule: false
+        )
     }
 
     func undoLast() {
         guard var session = active else { return }
-        let drink = session.drinks.max(by: { $0.at < $1.at })
-        let water = session.waters.max(by: { $0.at < $1.at })
-        switch (drink?.at, water?.at) {
-        case let (drinkAt?, waterAt?) where waterAt > drinkAt:
+        let currentNow = Date.now
+        let before = Pace.evaluate(session, now: currentNow)
+        let drink = session.drinks.max(by: { ($0.createdAt ?? $0.at) < ($1.createdAt ?? $1.at) })
+        let water = session.waters.max(by: { ($0.createdAt ?? $0.at) < ($1.createdAt ?? $1.at) })
+        let drinkTime = drink.map { $0.createdAt ?? $0.at }
+        let waterTime = water.map { $0.createdAt ?? $0.at }
+
+        let toastText: String
+        switch (drinkTime, waterTime) {
+        case let (dTime?, wTime?) where wTime > dTime:
             session.waters.removeAll { $0.id == water?.id }
-            showToast("已撤销上一条喝水记录")
+            toastText = "已撤销上一条喝水记录"
         case (nil, _?):
             session.waters.removeAll { $0.id == water?.id }
-            showToast("已撤销上一条喝水记录")
+            toastText = "已撤销上一条喝水记录"
         case (_?, _):
             if let drinkID = drink?.id {
                 session.drinks.removeAll { $0.id == drinkID }
@@ -392,23 +446,134 @@ final class SessionStore {
                     session.prompts[i].reply = nil
                     session.prompts[i].drinkID = nil
                 }
-                showToast("已撤销上一份饮酒记录")
+                toastText = "已撤销上一份饮酒记录"
+            } else {
+                return
             }
         default:
             return
         }
 
-        updatePrompts(&session, now: .now)
-        let after = Pace.evaluate(session, now: .now)
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: toastText,
+            defaultHaptic: .soft
+        )
+    }
+
+    func deleteDrink(id: UUID) {
+        guard var session = active else { return }
+        guard let removed = session.drinks.first(where: { $0.id == id }) else { return }
+        let currentNow = Date.now
+        let before = Pace.evaluate(session, now: currentNow)
+
+        session.drinks.removeAll { $0.id == id }
+        for i in 0..<session.prompts.count where session.prompts[i].drinkID == id {
+            session.prompts[i].reply = nil
+            session.prompts[i].drinkID = nil
+        }
+
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: "已删除：\(removed.name)（\(Format.shortTime(removed.at))）",
+            defaultHaptic: .soft
+        )
+    }
+
+    func deleteWater(id: UUID) {
+        guard var session = active else { return }
+        guard let removed = session.waters.first(where: { $0.id == id }) else { return }
+        let currentNow = Date.now
+        let before = Pace.evaluate(session, now: currentNow)
+
+        session.waters.removeAll { $0.id == id }
+
+        finalizeSessionMutation(
+            &session,
+            before: before,
+            now: currentNow,
+            toastMessage: "已删除 \(Format.shortTime(removed.at)) 喝水记录",
+            defaultHaptic: .soft,
+            needsReschedule: false
+        )
+    }
+
+    private func finalizeSessionMutation(
+        _ session: inout Session,
+        before: PaceSnapshot,
+        now currentNow: Date,
+        toastMessage: String?,
+        defaultHaptic: HapticFeedbackEvent,
+        needsReschedule: Bool = true
+    ) {
+        if needsReschedule {
+            updatePrompts(&session, now: currentNow)
+        }
+        let after = Pace.evaluate(session, now: currentNow)
         session.lastAnnouncedRank = after.intensity.rawValue
         session.lastAnnouncedCue = after.cue
         active = session
-        now = .now
+        now = currentNow
         bannerPulse += 1
         persist()
-        reschedule()
+        if needsReschedule {
+            reschedule()
+        }
         updateLiveActivity(session: session, snap: after, force: true)
-        triggerHaptic(.soft)
+        if let toastMessage {
+            showToast(toastMessage)
+        }
+
+        if after.cue == .over && (before.cue != .over || after.confirmedUnits > before.confirmedUnits) {
+            triggerHaptic(.stop)
+        } else if after.intensity > before.intensity || (after.cue == .hurried && before.cue != .hurried) {
+            triggerHaptic(.warning)
+        } else {
+            triggerHaptic(defaultHaptic)
+        }
+    }
+
+    // MARK: - LiveActivityIntent / AppIntent 后台直连入口
+
+    func logDrinkFromIntent() async -> String {
+        guard active != nil else { return "当前没有进行中的酒场" }
+        logDrink()
+        await rescheduleTask?.value
+        await liveActivityTask?.value
+        if let snap = snapshot {
+            return "已记 1 份，当前累计 \(snap.physicalText)（\(snap.title)）"
+        }
+        return "已记录 1 份"
+    }
+
+    func logWaterFromIntent() async -> String {
+        guard active != nil else { return "当前没有进行中的酒场" }
+        logWater()
+        await liveActivityTask?.value
+        if let snap = snapshot {
+            return "已记一杯水，当前水酒比 \(snap.waterCount):\(max(1, snap.drinkCount))"
+        }
+        return "已记一杯水"
+    }
+
+    func endSessionFromIntent() async -> String {
+        guard active != nil else { return "当前没有进行中的酒场" }
+        end()
+        await rescheduleTask?.value
+        await liveActivityTask?.value
+        return "已收杯结席，本场记录已归档至手账"
+    }
+
+    func statusSummaryForIntent() -> String {
+        guard let session = active, let snap = snapshot else {
+            return "当前没有进行中的酒场，可以在 App 内选择酒种与方案开席。"
+        }
+        let softText = session.beverageCategory.formatPhysical(from: session.softLimit)
+        return "本场已饮约 \(snap.physicalText)，建议线 \(softText)，当前状态：\(snap.title)。"
     }
 
     func handleDeepLinkEnd() {
@@ -743,6 +908,7 @@ final class SessionStore {
     private func makeLiveActivityState(session: Session, snap: PaceSnapshot) -> TingBeiAttributes.ContentState {
         let overCount = snap.intensity == .over ? session.prompts.filter { $0.level == .over && $0.at <= now }.count : nil
         let softPhysical = session.beverageCategory.formatPhysical(from: session.softLimit)
+        let compactPhysical = session.beverageCategory.formatCompactPhysical(from: snap.units)
         // 按分钟粒度对齐 elapsedSeconds，避免每秒无意义触发 ActivityKit 跨进程 IPC 刷新
         let roundedElapsed = Double(Int(snap.elapsed) / 60 * 60)
         return TingBeiAttributes.ContentState(
@@ -758,6 +924,7 @@ final class SessionStore {
             elapsedSeconds: roundedElapsed,
             isOver: snap.cue == .over || snap.cue == .due,
             physicalText: snap.physicalText,
+            compactPhysicalText: compactPhysical,
             physicalSoftLimitText: softPhysical,
             overCount: overCount,
             themeID: settings.selectedTheme.rawValue
@@ -863,15 +1030,14 @@ final class SessionStore {
             let url = try Self.fileURL()
             var state = SavedState(settings: settings, active: active, history: history)
             state.settings.normalize()
-            settings = state.settings
+            if state.settings != settings {
+                settings = state.settings
+            }
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(state)
             try data.write(to: url, options: .atomic)
-            if state.settings != settings {
-                settings = state.settings
-            }
             saveFailed = false
         } catch {
             saveFailed = true

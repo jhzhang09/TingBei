@@ -8,6 +8,7 @@ struct HomeView: View {
     @State private var showingPreferences = false
     @State private var showAllHistory = false
     @State private var showingThemeGallery = false
+    @State private var showingJournalStats = false
     @State private var confirmingClearEmpty = false
 
     var body: some View {
@@ -52,6 +53,13 @@ struct HomeView: View {
                 .presentationBackground(Theme.bg)
                 .preferredColorScheme(Theme.colorScheme)
         }
+        .sheet(isPresented: $showingJournalStats) {
+            JournalStatsSheet()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Theme.bg)
+                .preferredColorScheme(Theme.colorScheme)
+        }
     }
 
     // 1. 杂志刊头式极简抬头
@@ -82,28 +90,33 @@ struct HomeView: View {
 
                 // 主题入口统一放在下方「表盘与席间主题」区，刊头不再重复，避免挤压标题
                 HStack(spacing: 8) {
-                    // 个人历史节制勋章
+                    // 个人历史节制勋章（点按展开手账统计概览）
                     let nonEmpty = store.history.filter { $0.outcome(at: $0.endedAt ?? Date()) != .empty }
                     if !nonEmpty.isEmpty {
                         let withinCount = nonEmpty.filter { $0.outcome(at: $0.endedAt ?? Date()) != .crossed }.count
                         let rate = Int((Double(withinCount) / Double(nonEmpty.count) * 100).rounded())
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(rate)%")
-                                .font(.system(size: 16, weight: .regular, design: .serif).monospacedDigit())
-                                .foregroundStyle(Theme.goldBright)
-                            Text("收杯率")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.mute)
+                        Button {
+                            showingJournalStats = true
+                        } label: {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("\(rate)%")
+                                    .font(.system(size: 16, weight: .regular, design: .serif).monospacedDigit())
+                                    .foregroundStyle(Theme.goldBright)
+                                Text("收杯率")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.mute)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Theme.raised)
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.subtleCardStroke, lineWidth: 1))
+                            )
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Theme.raised)
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.subtleCardStroke, lineWidth: 1))
-                        )
+                        .buttonStyle(.plain)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("收杯率 \(rate)%")
+                        .accessibilityLabel("收杯率 \(rate)%，点按查看统计概览")
                     }
                 }
             }
@@ -137,8 +150,9 @@ struct HomeView: View {
                     Button {
                         let oldCat = store.settings.selectedBeverageCategory
                         if oldCat != cat {
-                            let softCount = max(1, Int(oldCat.physicalValue(from: store.settings.softLimit).rounded()))
-                            let hardCount = max(softCount, Int(oldCat.physicalValue(from: store.settings.hardLimit).rounded()))
+                            let softCount = min(cat.maxSoftPhysicalCount, max(1, Int(oldCat.physicalValue(from: store.settings.softLimit).rounded())))
+                            let maxHard = max(softCount, cat.maxHardPhysicalCount)
+                            let hardCount = min(maxHard, max(softCount, Int(oldCat.physicalValue(from: store.settings.hardLimit).rounded())))
                             withAnimation(.smooth(duration: 0.22)) {
                                 store.settings.selectedBeverageCategory = cat
                                 store.settings.softLimit = Double(softCount) * cat.standardUnitsPerUnit
@@ -325,14 +339,16 @@ struct HomeView: View {
 
     private var customSettingsSliders: some View {
         let cat = store.settings.selectedBeverageCategory
-        let softPhysicalCount = max(1, Int(cat.physicalValue(from: store.settings.softLimit).rounded()))
-        let hardPhysicalCount = max(softPhysicalCount, Int(cat.physicalValue(from: store.settings.hardLimit).rounded()))
+        let maxSoft = cat.maxSoftPhysicalCount
+        let softPhysicalCount = min(maxSoft, max(1, Int(cat.physicalValue(from: store.settings.softLimit).rounded())))
+        let maxHard = max(softPhysicalCount, cat.maxHardPhysicalCount)
+        let hardPhysicalCount = min(maxHard, max(softPhysicalCount, Int(cat.physicalValue(from: store.settings.hardLimit).rounded())))
 
         return VStack(spacing: 12) {
             SettingStepper(
                 title: "调整建议停杯线",
                 value: "\(softPhysicalCount) \(cat.unitName)",
-                range: 1...20,
+                range: 1...maxSoft,
                 step: 1,
                 valueBinding: Binding(
                     get: { softPhysicalCount },
@@ -342,18 +358,20 @@ struct HomeView: View {
                         if store.settings.hardLimit < newSoft {
                             store.settings.hardLimit = newSoft
                         }
+                        store.normalizeAndSaveSettings()
                     }
                 )
             )
             SettingStepper(
                 title: "调整严格警戒线",
                 value: "\(hardPhysicalCount) \(cat.unitName)",
-                range: softPhysicalCount...25,
+                range: softPhysicalCount...maxHard,
                 step: 1,
                 valueBinding: Binding(
                     get: { hardPhysicalCount },
                     set: { newCount in
                         store.settings.hardLimit = Double(newCount) * cat.standardUnitsPerUnit
+                        store.normalizeAndSaveSettings()
                     }
                 )
             )
@@ -362,11 +380,14 @@ struct HomeView: View {
                 value: Format.minutes(store.settings.plannedMinutes),
                 range: 30...360,
                 step: 15,
-                valueBinding: Bindable(store).settings.plannedMinutes
+                valueBinding: Binding(
+                    get: { store.settings.plannedMinutes },
+                    set: { newMinutes in
+                        store.settings.plannedMinutes = newMinutes
+                        store.normalizeAndSaveSettings()
+                    }
+                )
             )
-        }
-        .onChange(of: store.settings) { _, _ in
-            store.normalizeAndSaveSettings()
         }
     }
 
@@ -545,32 +566,49 @@ struct HomeView: View {
                     .font(.system(size: 16, weight: .medium, design: .serif))
                     .foregroundStyle(Theme.cream)
                 Spacer()
-                let emptyCount = store.history.filter(\.isEmptyRecord).count
-                if emptyCount > 0 {
+                HStack(spacing: 12) {
+                    let emptyCount = store.history.filter(\.isEmptyRecord).count
+                    if emptyCount > 0 {
+                        Button {
+                            confirmingClearEmpty = true
+                        } label: {
+                            Text("清理空场")
+                                .font(.caption)
+                                .foregroundStyle(Theme.mute)
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .confirmationDialog(
+                            "清理 \(emptyCount) 场空场记录？",
+                            isPresented: $confirmingClearEmpty,
+                            titleVisibility: .visible
+                        ) {
+                            Button("清理", role: .destructive) {
+                                withAnimation {
+                                    store.clearEmptyHistory()
+                                }
+                            }
+                            Button("取消", role: .cancel) {}
+                        } message: {
+                            Text("仅删除未饮酒、也无推测杯数的场次，删除后无法恢复。")
+                        }
+                    }
+
                     Button {
-                        confirmingClearEmpty = true
+                        showingJournalStats = true
                     } label: {
-                        Text("清理空场")
-                            .font(.caption)
-                            .foregroundStyle(Theme.mute)
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
+                        HStack(spacing: 4) {
+                            Image(systemName: "chart.bar.xaxis")
+                                .font(.system(size: 11))
+                            Text("月度概览")
+                                .font(.caption.weight(.medium))
+                        }
+                        .foregroundStyle(Theme.gold)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .confirmationDialog(
-                        "清理 \(emptyCount) 场空场记录？",
-                        isPresented: $confirmingClearEmpty,
-                        titleVisibility: .visible
-                    ) {
-                        Button("清理", role: .destructive) {
-                            withAnimation {
-                                store.clearEmptyHistory()
-                            }
-                        }
-                        Button("取消", role: .cancel) {}
-                    } message: {
-                        Text("仅删除未饮酒、也无推测杯数的场次，删除后无法恢复。")
-                    }
                 }
             }
 

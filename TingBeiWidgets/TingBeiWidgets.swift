@@ -1,6 +1,7 @@
 import WidgetKit
 import SwiftUI
 import ActivityKit
+import AppIntents
 
 @main
 struct TingBeiWidgetBundle: WidgetBundle {
@@ -31,6 +32,31 @@ struct WidgetThemeColors {
         )
     }
 
+    /// 灵动岛系统底色恒为纯黑：浅色主题（如宣纸/牙白/汝窑）需提亮主题色与警示色，避免黑底上发暗看不清
+    static func resolveForDynamicIsland(for themeID: String?) -> WidgetThemeColors {
+        let palette = ThemePalette.forThemeID(themeID)
+        guard palette.isLight else {
+            return resolve(for: themeID)
+        }
+        let brightAccent: Color
+        switch themeID {
+        case "celadonJade":
+            brightAccent = Color(red: 0.48, green: 0.78, blue: 0.75)
+        case "enamelIvory":
+            brightAccent = Color(red: 0.90, green: 0.72, blue: 0.45)
+        default:
+            brightAccent = Color(red: 0.85, green: 0.72, blue: 0.53)
+        }
+        return WidgetThemeColors(
+            bg: .black,
+            accent: brightAccent,
+            danger: Color(red: 0.93, green: 0.36, blue: 0.32),
+            textPrimary: .white,
+            textMuted: .white.opacity(0.65),
+            caution: Color(red: 0.95, green: 0.68, blue: 0.25)
+        )
+    }
+
     /// 状态色：到线 / 越线用朱砂，偏快 / 临线用警示色，其余用主题主色
     func status(for state: TingBeiAttributes.ContentState) -> Color {
         if state.isOver { return danger }
@@ -47,7 +73,7 @@ struct TingBeiLiveActivityWidget: Widget {
                 .activityBackgroundTint(wt.bg)
                 .activitySystemActionForegroundColor(wt.accent)
         } dynamicIsland: { context in
-            let wt = WidgetThemeColors.resolve(for: context.state.themeID)
+            let wt = WidgetThemeColors.resolveForDynamicIsland(for: context.state.themeID)
             return DynamicIsland {
                 // 长按展开态 (Expanded View)
                 DynamicIslandExpandedRegion(.leading) {
@@ -114,18 +140,19 @@ struct TingBeiLiveActivityWidget: Widget {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        // 快速深链跳转控制按钮
+                        // 免解锁后台交互按钮（LiveActivityIntent）；常态「我收杯了」经深链打开确认防误触
                         HStack(spacing: 12) {
-                            Link(destination: URL(string: "tingbei://logWater")!) {
+                            Button(intent: LogWaterLiveIntent()) {
                                 Label("喝了水", systemImage: "drop.fill")
                                     .font(.system(size: 12, weight: .medium))
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 6)
-                                    .background(Capsule().fill(Color.blue.opacity(0.2)))
+                                    .background(Capsule().fill(Color.blue.opacity(0.22)))
                                     .foregroundStyle(Color(red: 0.42, green: 0.68, blue: 0.86))
                             }
+                            .buttonStyle(.plain)
 
-                            Link(destination: URL(string: "tingbei://logDrink")!) {
+                            Button(intent: LogDrinkLiveIntent()) {
                                 Label("+1份", systemImage: "plus")
                                     .font(.system(size: 12, weight: .medium))
                                     .padding(.horizontal, 14)
@@ -133,16 +160,29 @@ struct TingBeiLiveActivityWidget: Widget {
                                     .background(Capsule().fill(wt.accent.opacity(0.25)))
                                     .foregroundStyle(wt.accent)
                             }
+                            .buttonStyle(.plain)
 
                             Spacer()
 
-                            Link(destination: URL(string: "tingbei://end")!) {
-                                Text("我收杯了")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 6)
-                                    .background(Capsule().fill(context.state.isOver ? wt.danger : Color.white.opacity(0.15)))
-                                    .foregroundStyle(.white)
+                            if context.state.isOver {
+                                Button(intent: EndSessionLiveIntent()) {
+                                    Text("我收杯了")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 6)
+                                        .background(Capsule().fill(wt.danger))
+                                        .foregroundStyle(.white)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Link(destination: URL(string: "tingbei://end")!) {
+                                    Text("我收杯了")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 6)
+                                        .background(Capsule().fill(Color.white.opacity(0.15)))
+                                        .foregroundStyle(.white)
+                                }
                             }
                         }
                     }
@@ -153,9 +193,10 @@ struct TingBeiLiveActivityWidget: Widget {
                     Image(systemName: "wineglass.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(wt.status(for: context.state))
-                    Text(context.state.physicalText ?? FormatWidget.units(context.state.units))
+                    Text(context.state.compactPhysicalText ?? context.state.physicalText ?? FormatWidget.units(context.state.units))
                         .font(.system(size: 11, weight: .bold, design: .serif))
                         .foregroundStyle(context.state.isOver ? wt.danger : .white)
+                        .lineLimit(1)
                 }
                 .padding(.leading, 2)
             } compactTrailing: {
@@ -323,34 +364,37 @@ struct LockScreenLiveActivityView: View {
 
             Spacer(minLength: 0)
 
-            // 右侧快速操作
-            // 右侧快速操作：常态「+1」在上为主；该停档「收杯」放大置顶，「+1」退为小号
+            // 右侧快速操作：常态「+1」在上为主；该停档「收杯」放大置顶，「+1」退为小号（+1 与到线收杯均免解锁后台执行）
             if state.isOver {
                 VStack(spacing: 6) {
-                    Link(destination: URL(string: "tingbei://end")!) {
+                    Button(intent: EndSessionLiveIntent()) {
                         Text("收杯")
                             .font(.system(size: 15, weight: .semibold, design: .serif))
                             .frame(width: 56, height: 40)
                             .background(Capsule().fill(wt.danger))
                             .foregroundStyle(.white)
                     }
-                    Link(destination: URL(string: "tingbei://logDrink")!) {
+                    .buttonStyle(.plain)
+
+                    Button(intent: LogDrinkLiveIntent()) {
                         Text("+1")
                             .font(.system(size: 12, design: .serif))
                             .frame(width: 56, height: 22)
                             .background(Capsule().fill(wt.textPrimary.opacity(0.10)))
                             .foregroundStyle(wt.textMuted)
                     }
+                    .buttonStyle(.plain)
                 }
             } else {
                 VStack(spacing: 6) {
-                    Link(destination: URL(string: "tingbei://logDrink")!) {
+                    Button(intent: LogDrinkLiveIntent()) {
                         Text("+1")
                             .font(.system(size: 14, weight: .semibold, design: .serif))
                             .frame(width: 44, height: 32)
                             .background(Capsule().fill(wt.accent.opacity(0.2)))
                             .foregroundStyle(wt.accent)
                     }
+                    .buttonStyle(.plain)
 
                     Link(destination: URL(string: "tingbei://end")!) {
                         Text("收")

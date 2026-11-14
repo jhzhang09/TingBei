@@ -8,19 +8,30 @@ struct TimelineDrawerSheet: View {
     @Environment(SessionStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
+    private struct DrawerLine: Identifiable {
+        let id: UUID
+        let at: Date
+        let text: String
+        let color: Color
+        var promptID: UUID? = nil
+        var drinkID: UUID? = nil
+        var waterID: UUID? = nil
+    }
+
     var body: some View {
+        let current = store.active ?? session
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("席间时间轴明细")
                         .font(.system(size: 22, weight: .light, design: .serif))
                         .foregroundStyle(Theme.cream)
-                    Text("可随时撤销误记，或逐条校准静默推测")
+                    Text("可随时撤销或逐条删除误记，也可逐条校准静默推测")
                         .font(.caption)
                         .foregroundStyle(Theme.mute)
                 }
                 Spacer()
-                if !session.drinks.isEmpty || !session.waters.isEmpty {
+                if !current.drinks.isEmpty || !current.waters.isEmpty {
                     Button {
                         withAnimation {
                             store.undoLast()
@@ -103,6 +114,34 @@ struct TimelineDrawerSheet: View {
                                         }
                                         .buttonStyle(.plain)
                                     }
+                                } else if let drinkID = line.drinkID {
+                                    Button(role: .destructive) {
+                                        withAnimation {
+                                            store.deleteDrink(id: drinkID)
+                                        }
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.caption)
+                                            .foregroundStyle(Theme.mute.opacity(0.65))
+                                            .frame(minWidth: 44, minHeight: 34)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("删除这条饮酒记录")
+                                } else if let waterID = line.waterID {
+                                    Button(role: .destructive) {
+                                        withAnimation {
+                                            store.deleteWater(id: waterID)
+                                        }
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.caption)
+                                            .foregroundStyle(Theme.mute.opacity(0.65))
+                                            .frame(minWidth: 44, minHeight: 34)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("删除这条喝水记录")
                                 }
                             }
                             .padding(.horizontal, 14)
@@ -117,19 +156,19 @@ struct TimelineDrawerSheet: View {
         .padding(.bottom, 20)
     }
 
-    private func buildLines() -> [LogLine] {
+    private func buildLines() -> [DrawerLine] {
         guard let currentSession = store.active else { return [] }
-        var items: [LogLine] = []
+        var items: [DrawerLine] = []
         for drink in currentSession.drinks {
-            items.append(LogLine(id: drink.id, at: drink.at, text: "\(drink.name) · \(drink.detail)", color: Theme.cream))
+            items.append(DrawerLine(id: drink.id, at: drink.at, text: "\(drink.name) · \(drink.detail)", color: Theme.cream, drinkID: drink.id))
         }
         for water in currentSession.waters {
-            items.append(LogLine(id: water.id, at: water.at, text: "💧 喝了一杯水", color: Theme.water))
+            items.append(DrawerLine(id: water.id, at: water.at, text: "💧 喝了一杯水", color: Theme.water, waterID: water.id))
         }
         for prompt in currentSession.prompts where prompt.reply == nil && prompt.at <= store.now {
             let cat = currentSession.beverageCategory
             let text = prompt.semanticText ?? "◌ 节奏推测 · 约 \(cat.formatPhysical(from: prompt.projectedUnits))"
-            items.append(LogLine(id: prompt.id, at: prompt.at, text: text, color: prompt.level == .over ? Theme.wine : Theme.gold, promptID: prompt.id))
+            items.append(DrawerLine(id: prompt.id, at: prompt.at, text: text, color: prompt.level == .over ? Theme.wine : Theme.gold, promptID: prompt.id))
         }
         return items.sorted { $0.at > $1.at }
     }
@@ -337,6 +376,15 @@ struct SummarySheet: View {
     let session: Session
     @Environment(\.dismiss) private var dismiss
 
+    private struct SummaryEvent: Identifiable {
+        let id: String
+        let at: Date
+        let order: Int
+        let title: String
+        let badge: String?
+        let color: Color
+    }
+
     var body: some View {
         let end = session.endedAt ?? Date()
         let outcome = session.outcome(at: end)
@@ -344,116 +392,274 @@ struct SummarySheet: View {
         let units = session.units(at: end)
         let confirmed = session.confirmedUnits(at: end)
         let estimated = session.estimatedUnits(at: end)
+        let events = buildEvents(end: end, outcome: outcome, category: cat)
 
-        VStack(spacing: 22) {
-            VStack(spacing: 8) {
-                Text("席 间 复 盘")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .tracking(3)
-                    .foregroundStyle(Theme.gold)
-                    .padding(.top, 28)
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 20) {
+                VStack(spacing: 8) {
+                    Text("席 间 复 盘")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .tracking(3)
+                        .foregroundStyle(Theme.gold)
+                        .padding(.top, 28)
 
-                Text(outcome.title)
-                    .font(.system(size: 34, weight: .light, design: .serif))
-                    .foregroundStyle(Theme.cream)
-
-                Text(outcome.detail)
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(Theme.mute)
-                    .padding(.horizontal, 28)
-            }
-
-            // 本场节奏曲线：实际（含推测）对照方案节奏，帮助下次定线
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("本场节奏")
-                        .font(.system(size: 15, weight: .medium, design: .serif))
+                    Text(outcome.title)
+                        .font(.system(size: 34, weight: .light, design: .serif))
                         .foregroundStyle(Theme.cream)
-                    Spacer()
-                    Text("实线 实际 · 虚线 方案")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.mute)
-                }
-                PaceCurveChart(session: session)
-                    .frame(height: 150)
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Theme.raised)
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.subtleCardStroke, lineWidth: 1))
-            )
-            .padding(.horizontal, 24)
 
-            VStack(spacing: 14) {
-                HStack {
-                    Text("主要酒器")
+                    Text(outcome.detail)
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
                         .foregroundStyle(Theme.mute)
-                    Spacer()
-                    Text("\(cat.name)（\(session.planName)）")
-                        .foregroundStyle(Theme.goldBright)
+                        .padding(.horizontal, 28)
                 }
-                Divider().background(Theme.faint)
-                HStack {
-                    Text(estimated > 0.05 ? "本场累计（含推测）" : "实际摄入总量")
-                        .foregroundStyle(Theme.mute)
-                    Spacer()
-                    Text("\(cat.formatPhysical(from: units)) · \(Format.units(units)) 标准杯")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Theme.cream)
-                }
-                if estimated > 0.05 {
+
+                // 本场节奏曲线：实际（含推测）对照方案节奏，横轴显示真实时刻
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("其中：确认 / 节奏推测")
-                            .font(.caption)
+                        Text("本场节奏")
+                            .font(.system(size: 15, weight: .medium, design: .serif))
+                            .foregroundStyle(Theme.cream)
+                        Spacer()
+                        Text("实线 实际 · 虚线 方案")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.mute)
+                    }
+                    PaceCurveChart(session: session)
+                        .frame(height: 155)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Theme.raised)
+                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.subtleCardStroke, lineWidth: 1))
+                )
+                .padding(.horizontal, 24)
+
+                // 核心统计卡片
+                VStack(spacing: 14) {
+                    HStack {
+                        Text("主要酒器")
                             .foregroundStyle(Theme.mute)
                         Spacer()
-                        Text("\(cat.formatPhysical(from: confirmed)) / \(cat.formatPhysical(from: estimated))")
-                            .font(.caption)
-                            .foregroundStyle(Theme.gold)
+                        Text("\(cat.name)（\(session.planName)）")
+                            .foregroundStyle(Theme.goldBright)
+                    }
+                    Divider().background(Theme.faint)
+                    HStack {
+                        Text("起止时间")
+                            .foregroundStyle(Theme.mute)
+                        Spacer()
+                        Text(Format.sessionDayAndRange(start: session.startedAt, end: end))
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(Theme.cream)
+                    }
+                    Divider().background(Theme.faint)
+                    HStack {
+                        Text(estimated > 0.05 ? "本场累计（含推测）" : "实际摄入总量")
+                            .foregroundStyle(Theme.mute)
+                        Spacer()
+                        Text("\(cat.formatPhysical(from: units)) · \(Format.units(units)) 标准杯")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Theme.cream)
+                    }
+                    if estimated > 0.05 {
+                        HStack {
+                            Text("其中：确认 / 节奏推测")
+                                .font(.caption)
+                                .foregroundStyle(Theme.mute)
+                            Spacer()
+                            Text("\(cat.formatPhysical(from: confirmed)) / \(cat.formatPhysical(from: estimated))")
+                                .font(.caption)
+                                .foregroundStyle(Theme.gold)
+                        }
+                    }
+                    Divider().background(Theme.faint)
+                    HStack {
+                        Text("席间时长")
+                            .foregroundStyle(Theme.mute)
+                        Spacer()
+                        Text(Format.minutes(Int(session.duration / 60)))
+                            .foregroundStyle(Theme.cream)
+                    }
+                    Divider().background(Theme.faint)
+                    HStack {
+                        Text("代谢补水")
+                            .foregroundStyle(Theme.mute)
+                        Spacer()
+                        Text("\(session.waters.count) 杯水")
+                            .foregroundStyle(Theme.water)
                     }
                 }
-                Divider().background(Theme.faint)
-                HStack {
-                    Text("席间时长")
-                        .foregroundStyle(Theme.mute)
-                    Spacer()
-                    Text(Format.minutes(Int(session.duration / 60)))
-                        .foregroundStyle(Theme.cream)
+                .font(.subheadline)
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Theme.raised)
+                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.bezelGradient, lineWidth: 1))
+                )
+                .padding(.horizontal, 24)
+
+                // 本场饮水与记杯时刻明细（精确到 HH:mm）
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("本场饮水与记杯明细")
+                            .font(.system(size: 15, weight: .medium, design: .serif))
+                            .foregroundStyle(Theme.cream)
+                        Spacer()
+                        Text("共 \(session.drinks.count) 杯酒 · \(session.waters.count) 杯水")
+                            .font(.caption)
+                            .foregroundStyle(Theme.mute)
+                    }
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                            HStack(alignment: .center, spacing: 10) {
+                                Text(clockLabel(for: event.at))
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(Theme.mute)
+                                    .frame(minWidth: 44, alignment: .leading)
+
+                                Circle()
+                                    .fill(event.color)
+                                    .frame(width: 6, height: 6)
+
+                                Text(event.title)
+                                    .font(.subheadline)
+                                    .foregroundStyle(event.color)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+
+                                Spacer(minLength: 8)
+
+                                if let badge = event.badge {
+                                    Text(badge)
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(Theme.mute)
+                                }
+                            }
+                            .padding(.vertical, 9)
+
+                            if index < events.count - 1 {
+                                Divider().background(Theme.faint.opacity(0.6))
+                            }
+                        }
+                    }
                 }
-                Divider().background(Theme.faint)
-                HStack {
-                    Text("代谢补水")
-                        .foregroundStyle(Theme.mute)
-                    Spacer()
-                    Text("\(session.waters.count) 杯水")
-                        .foregroundStyle(Theme.water)
-                }
+                .padding(18)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Theme.raised)
+                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.subtleCardStroke, lineWidth: 1))
+                )
+                .padding(.horizontal, 24)
             }
-            .font(.subheadline)
-            .padding(20)
+            .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 0) {
+                FillButton(title: "收妥归档", color: Theme.gold) {
+                    dismiss()
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+            }
             .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Theme.raised)
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.bezelGradient, lineWidth: 1))
+                LinearGradient(
+                    colors: [Theme.bg.opacity(0), Theme.bg.opacity(0.95), Theme.bg],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             )
-            .padding(.horizontal, 24)
+        }
+    }
 
-            Spacer()
+    private func clockLabel(for date: Date) -> String {
+        if Calendar.current.isDate(date, inSameDayAs: session.startedAt) {
+            return Format.shortTime(date)
+        }
+        return "次日 \(Format.shortTime(date))"
+    }
 
-            FillButton(title: "收妥归档", color: Theme.gold) {
-                dismiss()
+    private func buildEvents(end: Date, outcome: Outcome, category: BeverageCategory) -> [SummaryEvent] {
+        var list: [SummaryEvent] = [
+            SummaryEvent(
+                id: "start",
+                at: session.startedAt,
+                order: 0,
+                title: "开席 · \(session.planName)",
+                badge: nil,
+                color: Theme.gold
+            )
+        ]
+
+        for drink in session.drinks {
+            list.append(
+                SummaryEvent(
+                    id: "drink_\(drink.id.uuidString)",
+                    at: drink.at,
+                    order: 1,
+                    title: "\(drink.name) · \(drink.detail)",
+                    badge: "\(Format.units(drink.grams / Pace.gramsPerStandard)) 标准杯",
+                    color: Theme.cream
+                )
+            )
+        }
+
+        for water in session.waters {
+            list.append(
+                SummaryEvent(
+                    id: "water_\(water.id.uuidString)",
+                    at: water.at,
+                    order: 1,
+                    title: "💧 喝了一杯水",
+                    badge: nil,
+                    color: Theme.water
+                )
+            )
+        }
+
+        if session.estimateWhenSilent {
+            for prompt in session.prompts where prompt.reply == nil && prompt.at <= end {
+                list.append(
+                    SummaryEvent(
+                        id: "prompt_\(prompt.id.uuidString)",
+                        at: prompt.at,
+                        order: 1,
+                        title: "◌ 节奏推测（未回复）",
+                        badge: "+\(category.formatPhysical(from: prompt.estimate))",
+                        color: prompt.level == .over ? Theme.wine : Theme.gold.opacity(0.85)
+                    )
+                )
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+        }
+
+        if end.timeIntervalSince(session.startedAt) >= 5 {
+            list.append(
+                SummaryEvent(
+                    id: "end",
+                    at: end,
+                    order: 2,
+                    title: "收杯结席 · \(outcome.title)",
+                    badge: nil,
+                    color: outcome == .crossed ? Theme.wine : Theme.sage
+                )
+            )
+        }
+
+        return list.sorted { lhs, rhs in
+            if lhs.at == rhs.at {
+                return lhs.order < rhs.order
+            }
+            return lhs.at < rhs.at
         }
     }
 }
 
 // MARK: - 复盘节奏曲线
 
-/// 以本场酒种的物理单位绘制累计杯量（确认 + 推测）随时间的阶梯曲线，
+/// 以本场酒种的物理单位绘制累计杯量（确认 + 推测）随真实时刻的阶梯曲线，
 /// 叠加方案节奏（预定时长内匀速到达建议线）与建议线 / 上限两条横线。
 struct PaceCurveChart: View {
     let session: Session
@@ -502,22 +708,33 @@ struct PaceCurveChart: View {
                 .foregroundStyle(Theme.mute)
                 .lineStyle(StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
 
-            RuleMark(y: .value("建议线", soft))
-                .foregroundStyle(Theme.caution.opacity(0.7))
-                .lineStyle(StrokeStyle(lineWidth: 1))
-                .annotation(position: .top, alignment: .leading) {
-                    Text("建议线 \(cat.formatPhysical(from: session.softLimit))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.caution)
-                }
-            RuleMark(y: .value("上限", hard))
-                .foregroundStyle(Theme.wine.opacity(0.7))
-                .lineStyle(StrokeStyle(lineWidth: 1))
-                .annotation(position: .top, alignment: .leading) {
-                    Text("上限 \(cat.formatPhysical(from: session.hardLimit))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.wine)
-                }
+            if abs(hard - soft) < 0.01 {
+                RuleMark(y: .value("上限", hard))
+                    .foregroundStyle(Theme.wine.opacity(0.75))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .annotation(position: .top, alignment: .leading) {
+                        Text("建议 / 上限 \(cat.formatPhysical(from: session.softLimit))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.wine)
+                    }
+            } else {
+                RuleMark(y: .value("建议线", soft))
+                    .foregroundStyle(Theme.caution.opacity(0.7))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .annotation(position: .top, alignment: .leading) {
+                        Text("建议线 \(cat.formatPhysical(from: session.softLimit))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.caution)
+                    }
+                RuleMark(y: .value("上限", hard))
+                    .foregroundStyle(Theme.wine.opacity(0.7))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .annotation(position: .top, alignment: .trailing) {
+                        Text("上限 \(cat.formatPhysical(from: session.hardLimit))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.wine)
+                    }
+            }
         }
         .chartYScale(domain: 0...max(yMax, 1))
         .chartXScale(domain: 0...max(total / 60, planMinutes))
@@ -526,8 +743,8 @@ struct PaceCurveChart: View {
                 AxisGridLine().foregroundStyle(Theme.faint)
                 AxisValueLabel {
                     if let minute = value.as(Double.self) {
-                        Text(Format.hm(minute * 60))
-                            .font(.system(size: 11))
+                        Text(Format.shortTime(session.startedAt.addingTimeInterval(minute * 60)))
+                            .font(.system(size: 11).monospacedDigit())
                             .foregroundStyle(Theme.mute)
                     }
                 }
@@ -919,3 +1136,456 @@ struct ThemeGallerySheet: View {
             .overlay(Circle().stroke(border, lineWidth: 0.6))
     }
 }
+
+// MARK: - 席间实时微调抽屉（档位、时长、推测、声律与常亮）
+
+struct SessionSettingsSheet: View {
+    @Environment(SessionStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var softPhysical: Int = 3
+    @State private var hardPhysical: Int = 4
+    @State private var plannedMinutes: Int = 120
+    @State private var estimateWhenSilent: Bool = true
+    @State private var initialized = false
+
+    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
+    var body: some View {
+        @Bindable var store = store
+        ScrollView(showsIndicators: false) {
+            if let session = store.active {
+                let cat = session.beverageCategory
+                let softStd = Double(softPhysical) * cat.standardUnitsPerUnit
+                let hardStd = Double(hardPhysical) * cat.standardUnitsPerUnit
+
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("席间实时微调")
+                                .font(.system(size: 24, weight: .light, design: .serif))
+                                .foregroundStyle(Theme.cream)
+                            Text("按 \(cat.name)（\(cat.unitName)）即时重排提醒与表盘刻度")
+                                .font(.caption)
+                                .foregroundStyle(Theme.mute)
+                        }
+                        Spacer()
+                        Button("完成") {
+                            dismiss()
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(Theme.surface))
+                        .foregroundStyle(Theme.goldBright)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 22)
+
+                    // 1. 本场节拍线与静默推测
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("本场节拍线（\(session.planName)）")
+                            .font(.system(size: 15, weight: .medium, design: .serif))
+                            .foregroundStyle(Theme.cream)
+
+                        VStack(spacing: 12) {
+                            SettingStepper(
+                                title: "建议停杯线",
+                                value: "\(softPhysical) \(cat.unitName)（\(Format.units(softStd))杯）",
+                                range: 1...cat.maxSoftPhysicalCount,
+                                step: 1,
+                                valueBinding: Binding(
+                                    get: { softPhysical },
+                                    set: { next in
+                                        softPhysical = min(cat.maxSoftPhysicalCount, max(1, next))
+                                        if hardPhysical < softPhysical {
+                                            hardPhysical = softPhysical
+                                        }
+                                    }
+                                )
+                            )
+
+                            Divider().background(Theme.faint)
+
+                            SettingStepper(
+                                title: "严格警戒线",
+                                value: "\(hardPhysical) \(cat.unitName)（\(Format.units(hardStd))杯）",
+                                range: softPhysical...cat.maxHardPhysicalCount,
+                                step: 1,
+                                valueBinding: Binding(
+                                    get: { hardPhysical },
+                                    set: { next in
+                                        hardPhysical = min(cat.maxHardPhysicalCount, max(softPhysical, next))
+                                    }
+                                )
+                            )
+
+                            Divider().background(Theme.faint)
+
+                            SettingStepper(
+                                title: "预定时长",
+                                value: Format.minutes(plannedMinutes),
+                                range: 30...360,
+                                step: 15,
+                                valueBinding: $plannedMinutes
+                            )
+
+                            Divider().background(Theme.faint)
+
+                            Toggle(isOn: $estimateWhenSilent) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("未回应时按节奏推测")
+                                        .font(.system(size: 14, design: .serif))
+                                        .foregroundStyle(Theme.cream)
+                                    Text("关闭后只统计主动确认的杯数")
+                                        .font(.caption2)
+                                        .foregroundStyle(Theme.mute)
+                                }
+                            }
+                            .tint(Theme.gold)
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Theme.raised)
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.subtleCardStroke, lineWidth: 1))
+                        )
+
+                        FillButton(title: "应用本场调整", color: Theme.gold) {
+                            store.updateActiveSession(
+                                softLimit: softStd,
+                                hardLimit: hardStd,
+                                plannedMinutes: plannedMinutes,
+                                estimateWhenSilent: estimateWhenSilent
+                            )
+                            dismiss()
+                        }
+                    }
+
+                    // 2. 席间表盘常亮（即时生效）
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("座钟与屏幕")
+                            .font(.system(size: 15, weight: .medium, design: .serif))
+                            .foregroundStyle(Theme.cream)
+
+                        Toggle(isOn: $store.settings.keepScreenOn) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("席间表盘常亮")
+                                    .font(.system(size: 15, design: .serif))
+                                    .foregroundStyle(Theme.cream)
+                                Text("把手机立在桌上当座钟时开启")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.mute)
+                            }
+                        }
+                        .tint(Theme.gold)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Theme.raised)
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.subtleCardStroke, lineWidth: 1))
+                        )
+                    }
+
+                    // 3. 提醒音色（点按试听并即时保存）
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("提醒音色")
+                                .font(.system(size: 15, weight: .medium, design: .serif))
+                                .foregroundStyle(Theme.cream)
+                            Spacer()
+                            Text("点按即试听并生效")
+                                .font(.caption)
+                                .foregroundStyle(Theme.mute)
+                        }
+
+                        LazyVGrid(columns: columns, spacing: 10) {
+                            ForEach(NotificationSoundOption.allCases) { opt in
+                                let isSelected = store.settings.notificationSound == opt
+                                Button {
+                                    store.settings.notificationSound = opt
+                                    store.previewSound(opt)
+                                    store.normalizeAndSaveSettings()
+                                    store.reschedule()
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: isSelected ? "speaker.wave.2.fill" : "play.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(isSelected ? Theme.goldBright : Theme.mute)
+                                        Text(opt.displayName)
+                                            .font(.system(size: 14, weight: isSelected ? .semibold : .regular, design: .serif))
+                                            .foregroundStyle(Theme.cream)
+                                        Spacer(minLength: 0)
+                                        if isSelected {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundStyle(Theme.goldBright)
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 48)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 13)
+                                            .fill(Theme.raised)
+                                            .overlay(RoundedRectangle(cornerRadius: 13).stroke(isSelected ? Theme.gold : Theme.faint, lineWidth: isSelected ? 1.2 : 0.9))
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 28)
+            }
+        }
+        .onAppear {
+            guard !initialized, let session = store.active else { return }
+            initialized = true
+            let cat = session.beverageCategory
+            let softCount = min(cat.maxSoftPhysicalCount, max(1, Int(round(cat.physicalValue(from: session.softLimit)))))
+            let hardCount = min(cat.maxHardPhysicalCount, max(softCount, Int(round(cat.physicalValue(from: session.hardLimit)))))
+            softPhysical = softCount
+            hardPhysical = hardCount
+            plannedMinutes = min(360, max(30, session.plannedMinutes))
+            estimateWhenSilent = session.estimateWhenSilent
+        }
+        .onChange(of: store.settings.keepScreenOn) { _, _ in
+            store.normalizeAndSaveSettings()
+        }
+    }
+}
+
+// MARK: - 席间手账统计概览抽屉
+
+struct JournalStatsSheet: View {
+    @Environment(SessionStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var scope = 0
+
+    var body: some View {
+        let now = Date()
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+        let sessions = store.history.filter { session in
+            let end = session.endedAt ?? now
+            guard session.outcome(at: end) != .empty else { return false }
+            return scope == 0 ? session.startedAt >= cutoff : true
+        }
+
+        let count = sessions.count
+        let withinCount = sessions.filter { $0.outcome(at: $0.endedAt ?? now) == .within }.count
+        let touchedCount = sessions.filter { $0.outcome(at: $0.endedAt ?? now) == .touched }.count
+        let crossedCount = sessions.filter { $0.outcome(at: $0.endedAt ?? now) == .crossed }.count
+        let keepRate = count > 0 ? Int((Double(withinCount + touchedCount) / Double(count) * 100).rounded()) : 0
+
+        let totalUnits = sessions.reduce(0.0) { $0 + $1.units(at: $1.endedAt ?? now) }
+        let avgUnits = count > 0 ? totalUnits / Double(count) : 0
+        let avgMinutes = count > 0 ? Int((sessions.reduce(0.0) { $0 + $1.duration } / Double(count) / 60).rounded()) : 0
+        let totalDrinks = sessions.reduce(0) { $0 + $1.drinks.count }
+        let totalWaters = sessions.reduce(0) { $0 + $1.waters.count }
+
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("手账统计概览")
+                            .font(.system(size: 24, weight: .light, design: .serif))
+                            .foregroundStyle(Theme.cream)
+                        Text("仅统计已饮酒的非空场次")
+                            .font(.caption)
+                            .foregroundStyle(Theme.mute)
+                    }
+                    Spacer()
+                    Button("完成") {
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(Theme.surface))
+                    .foregroundStyle(Theme.goldBright)
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 22)
+
+                Picker("统计区间", selection: $scope) {
+                    Text("近 30 天").tag(0)
+                    Text("全部手账").tag(1)
+                }
+                .pickerStyle(.segmented)
+
+                if sessions.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "wineglass")
+                            .font(.title2)
+                            .foregroundStyle(Theme.mute)
+                        Text(scope == 0 ? "近 30 天暂无饮酒记录" : "手账里暂无饮酒记录")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.cream)
+                        if scope == 0 && !store.history.isEmpty {
+                            Text("可切换至「全部手账」查看更早的场次。")
+                                .font(.caption)
+                                .foregroundStyle(Theme.mute)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Theme.raised)
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.subtleCardStroke, lineWidth: 1))
+                    )
+                } else {
+                    // 1. 守线收杯率与结果分布条
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("守线收杯率")
+                                .font(.system(size: 15, weight: .medium, design: .serif))
+                                .foregroundStyle(Theme.cream)
+                            Spacer()
+                            Text("\(keepRate)%")
+                                .font(.system(size: 26, weight: .light, design: .serif).monospacedDigit())
+                                .foregroundStyle(Theme.goldBright)
+                        }
+
+                        GeometryReader { geo in
+                            let w = max(geo.size.width, 1)
+                            HStack(spacing: 2) {
+                                if withinCount > 0 {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Theme.sage)
+                                        .frame(width: w * CGFloat(withinCount) / CGFloat(count))
+                                }
+                                if touchedCount > 0 {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Theme.gold)
+                                        .frame(width: w * CGFloat(touchedCount) / CGFloat(count))
+                                }
+                                if crossedCount > 0 {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Theme.wine)
+                                        .frame(width: w * CGFloat(crossedCount) / CGFloat(count))
+                                }
+                            }
+                        }
+                        .frame(height: 10)
+
+                        HStack(spacing: 14) {
+                            outcomeLegend(color: Theme.sage, label: "收在线内", count: withinCount)
+                            outcomeLegend(color: Theme.gold, label: "到线就收", count: touchedCount)
+                            outcomeLegend(color: Theme.wine, label: "越过线了", count: crossedCount)
+                        }
+                    }
+                    .padding(18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Theme.raised)
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.bezelGradient, lineWidth: 1))
+                    )
+
+                    // 2. 四宫格核心指标
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                        statCard(title: "开席场次", value: "\(count) 场", subtitle: "累计 \(Format.units(totalUnits)) 标准杯")
+                        statCard(title: "场均酒量", value: "\(Format.units(avgUnits)) 杯", subtitle: "WHO 14g 标准杯")
+                        statCard(title: "场均时长", value: Format.minutes(avgMinutes), subtitle: "从开席至收杯")
+                        statCard(title: "代谢补水", value: "\(totalWaters) 杯", subtitle: totalDrinks > 0 ? "水酒比 \(totalWaters):\(totalDrinks)" : "席间主动补水")
+                    }
+
+                    // 3. 酒种分布
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("酒种偏好分布")
+                            .font(.system(size: 15, weight: .medium, design: .serif))
+                            .foregroundStyle(Theme.cream)
+
+                        let breakdown = BeverageCategory.allCases.compactMap { cat -> CategoryStat? in
+                            let c = sessions.filter { $0.beverageCategory == cat }.count
+                            return c > 0 ? CategoryStat(category: cat, count: c) : nil
+                        }.sorted { $0.count > $1.count }
+
+                        ForEach(breakdown) { item in
+                            let cat = item.category
+                            let catCount = item.count
+                            let ratio = Double(catCount) / Double(count)
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: cat.icon)
+                                            .font(.caption)
+                                            .foregroundStyle(Theme.gold)
+                                        Text(cat.name)
+                                            .font(.subheadline)
+                                            .foregroundStyle(Theme.cream)
+                                    }
+                                    Spacer()
+                                    Text("\(catCount) 场 · \(Int((ratio * 100).rounded()))%")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(Theme.mute)
+                                }
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule().fill(Theme.faint)
+                                        Capsule()
+                                            .fill(Theme.gold.opacity(0.85))
+                                            .frame(width: max(6, geo.size.width * ratio))
+                                    }
+                                }
+                                .frame(height: 6)
+                            }
+                        }
+                    }
+                    .padding(18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Theme.raised)
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.subtleCardStroke, lineWidth: 1))
+                    )
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 28)
+        }
+    }
+
+    private struct CategoryStat: Identifiable {
+        var id: String { category.id }
+        let category: BeverageCategory
+        let count: Int
+    }
+
+    private func outcomeLegend(color: Color, label: String, count: Int) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text("\(label) \(count)")
+                .font(.caption)
+                .foregroundStyle(Theme.mute)
+        }
+    }
+
+    private func statCard(title: String, value: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Theme.mute)
+            Text(value)
+                .font(.system(size: 20, weight: .light, design: .serif).monospacedDigit())
+                .foregroundStyle(Theme.cream)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(Theme.gold)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Theme.raised)
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.subtleCardStroke, lineWidth: 1))
+        )
+    }
+}
+

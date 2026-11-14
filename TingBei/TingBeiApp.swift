@@ -37,7 +37,7 @@ struct TingBeiApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     /// 由 AppDelegate 持有：锁屏点通知按钮冷启动时只在后台运行、不会创建窗口，
     /// 若等 RootView.onAppear 再注入，回调到达时 store 仍为空，操作会被静默丢弃。
-    let store = SessionStore()
+    let store = SessionStore.shared
 
     func application(
         _ application: UIApplication,
